@@ -1,16 +1,20 @@
-"""PRD Forge MCP Server — 20 tools for sectional PRD management."""
+"""PRD Forge MCP Server — 27 tools for sectional PRD management."""
 
 import argparse
 import json
 import logging
 import os
 import re
+import sys
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 
 import asyncpg
 from mcp.server.fastmcp import FastMCP
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from shared.settings import DEFAULT_PROJECT_SETTINGS, SETTINGS_SCHEMA, validate_settings
 
 logger = logging.getLogger("prd_forge_mcp")
 logging.basicConfig(
@@ -105,6 +109,30 @@ async def resolve_section(pool, project_id, slug: str):
         "SELECT * FROM sections WHERE project_id = $1 AND slug = $2",
         project_id, slug,
     )
+
+
+async def resolve_comment_id(pool, project_slug, section_slug, comment_id_str):
+    """Validate comment belongs to project/section. Returns (comment_uuid, section_uuid) or None."""
+    cid = uuid.UUID(comment_id_str)
+    row = await pool.fetchrow("""
+        SELECT c.id, s.id AS section_id FROM section_comments c
+        JOIN sections s ON s.id = c.section_id
+        JOIN projects p ON p.id = s.project_id
+        WHERE c.id = $1 AND p.slug = $2 AND s.slug = $3
+    """, cid, project_slug, section_slug)
+    return (row["id"], row["section_id"]) if row else None
+
+
+async def get_project_settings(pool, project_id):
+    row = await pool.fetchrow(
+        "SELECT settings FROM project_settings WHERE project_id = $1", project_id
+    )
+    if row:
+        raw = row["settings"]
+        db_settings = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    else:
+        db_settings = {}
+    return {**DEFAULT_PROJECT_SETTINGS, **db_settings}
 
 
 # --- Group 1: Project Management ---
@@ -243,10 +271,37 @@ async def prd_read_section(project: str, section: str) -> str:
             WHERE d.depends_on_id = $1
         """, sec_id)
 
+        comments = await pool.fetch("""
+            SELECT id, anchor_text, anchor_prefix, anchor_suffix, body, resolved, created_at
+            FROM section_comments WHERE section_id = $1
+            ORDER BY created_at
+        """, sec_id)
+
+        # Batch-fetch replies for all comments
+        comment_ids = [c["id"] for c in comments]
+        replies = await pool.fetch(
+            "SELECT id, comment_id, author, body, created_at "
+            "FROM comment_replies WHERE comment_id = ANY($1) ORDER BY created_at",
+            comment_ids,
+        ) if comment_ids else []
+
+        # Group replies by comment_id
+        replies_by_comment = {}
+        for r in replies:
+            cid = str(r["comment_id"])
+            replies_by_comment.setdefault(cid, []).append(row_to_dict(r))
+
+        comment_dicts = []
+        for c in comments:
+            cd = row_to_dict(c)
+            cd["replies"] = replies_by_comment.get(str(c["id"]), [])
+            comment_dicts.append(cd)
+
         return ok({
             "section": row_to_dict(sec),
             "depends_on": [row_to_dict(r) for r in depends_on],
             "depended_by": [row_to_dict(r) for r in depended_by],
+            "comments": comment_dicts,
         })
     except Exception as e:
         logger.error("prd_read_section: %s", e)
@@ -307,10 +362,12 @@ async def prd_update_section(
     title: str | None = None, status: str | None = None,
     tags: list[str] | None = None, notes: str | None = None,
     change_description: str = "",
+    resolve_comments: list[str] | None = None,
 ) -> str:
     """
     Update a section. Only provided fields are changed. If content is provided,
     current content is saved as a revision BEFORE update (atomic).
+    Pass resolve_comments (list of comment IDs) to atomically resolve comments in the same transaction.
     """
     if status and status not in VALID_STATUSES:
         return err(f"invalid status '{status}', must be one of {sorted(VALID_STATUSES)}")
@@ -373,9 +430,41 @@ async def prd_update_section(
                 sql = f"UPDATE sections SET {', '.join(sets)} WHERE id = ${len(vals)} RETURNING slug, title, status, tags, word_count, updated_at"
                 updated = await conn.fetchrow(sql, *vals)
 
+                # Auto-resolve comments if requested
+                resolved_ids = []
+                if resolve_comments:
+                    valid_cids = []
+                    for cid_str in resolve_comments:
+                        try:
+                            valid_cids.append(uuid.UUID(cid_str))
+                        except ValueError:
+                            continue
+
+                    if valid_cids:
+                        settings = await get_project_settings(conn, pid)
+
+                        # Auto-reply if setting enabled
+                        if settings.get("claude_comment_replies"):
+                            await conn.execute("""
+                                INSERT INTO comment_replies (comment_id, author, body)
+                                SELECT c.id, 'claude', $1
+                                FROM section_comments c
+                                WHERE c.id = ANY($2) AND c.section_id = $3 AND c.resolved = false
+                            """, change_description or "Addressed in this update", valid_cids, row["id"])
+
+                        # Batch resolve
+                        resolved_rows = await conn.fetch("""
+                            UPDATE section_comments SET resolved = true
+                            WHERE id = ANY($1) AND section_id = $2 AND resolved = false
+                            RETURNING id
+                        """, valid_cids, row["id"])
+                        resolved_ids = [str(r["id"]) for r in resolved_rows]
+
         result = {"updated": row_to_dict(updated)}
         if revision_created is not None:
             result["revision_created"] = revision_created
+        if resolved_ids:
+            result["resolved_comments"] = resolved_ids
         logger.info("Updated section: %s/%s", project, section)
         return ok(result)
     except Exception as e:
@@ -575,6 +664,157 @@ async def prd_remove_dependency(project: str, section: str, depends_on: str) -> 
         return ok({"removed": removed, "from": section, "to": depends_on})
     except Exception as e:
         logger.error("prd_remove_dependency: %s", e)
+        return err(str(e))
+
+
+# --- Group 3b: Inline Comments ---
+
+@mcp.tool(
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
+)
+async def prd_add_comment(
+    project: str, section: str, anchor_text: str, body: str,
+    anchor_prefix: str = "", anchor_suffix: str = "",
+) -> str:
+    """Add an inline comment anchored to selected text in a section. Like Google Docs comments."""
+    try:
+        pool = await get_pool()
+        pid = await resolve_project_id(pool, project)
+        if not pid:
+            return err(f"project '{project}' not found")
+        sec = await pool.fetchrow(
+            "SELECT id FROM sections WHERE project_id = $1 AND slug = $2", pid, section
+        )
+        if not sec:
+            return err(f"section '{section}' not found in project '{project}'")
+        row = await pool.fetchrow("""
+            INSERT INTO section_comments (section_id, anchor_text, anchor_prefix, anchor_suffix, body)
+            VALUES ($1, $2, $3, $4, $5) RETURNING *
+        """, sec["id"], anchor_text, anchor_prefix, anchor_suffix, body)
+        logger.info("Added comment on %s/%s: %.40s", project, section, anchor_text)
+        return ok({"created": row_to_dict(row)})
+    except Exception as e:
+        logger.error("prd_add_comment: %s", e)
+        return err(str(e))
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+)
+async def prd_resolve_comment(project: str, section: str, comment_id: str, reopen: bool = False) -> str:
+    """Resolve (or reopen) an inline comment. Use after implementing the requested change."""
+    try:
+        pool = await get_pool()
+        resolved = await resolve_comment_id(pool, project, section, comment_id)
+        if not resolved:
+            return err(f"comment '{comment_id}' not found in {project}/{section}")
+        cid, _ = resolved
+        await pool.execute(
+            "UPDATE section_comments SET resolved = $1 WHERE id = $2",
+            not reopen, cid,
+        )
+        action = "reopened" if reopen else "resolved"
+        logger.info("%s comment %s on %s/%s", action, comment_id, project, section)
+        return ok({"comment_id": comment_id, "action": action})
+    except Exception as e:
+        logger.error("prd_resolve_comment: %s", e)
+        return err(str(e))
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False}
+)
+async def prd_delete_comment(project: str, section: str, comment_id: str) -> str:
+    """Delete an inline comment."""
+    try:
+        pool = await get_pool()
+        resolved = await resolve_comment_id(pool, project, section, comment_id)
+        if not resolved:
+            return err(f"comment '{comment_id}' not found in {project}/{section}")
+        cid, _ = resolved
+        await pool.execute("DELETE FROM section_comments WHERE id = $1", cid)
+        logger.info("Deleted comment %s on %s/%s", comment_id, project, section)
+        return ok({"deleted": comment_id})
+    except Exception as e:
+        logger.error("prd_delete_comment: %s", e)
+        return err(str(e))
+
+
+# --- Group 3c: Comment Replies ---
+
+@mcp.tool(
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
+)
+async def prd_add_comment_reply(
+    project: str, section: str, comment_id: str, body: str, author: str = "claude",
+) -> str:
+    """Add a reply to an inline comment. Author must be 'user' or 'claude'."""
+    if author not in ("user", "claude"):
+        return err(f"author must be 'user' or 'claude', got '{author}'")
+    try:
+        pool = await get_pool()
+        resolved = await resolve_comment_id(pool, project, section, comment_id)
+        if not resolved:
+            return err(f"comment '{comment_id}' not found in {project}/{section}")
+        cid, _ = resolved
+        row = await pool.fetchrow(
+            "INSERT INTO comment_replies (comment_id, author, body) "
+            "VALUES ($1, $2, $3) RETURNING *",
+            cid, author, body,
+        )
+        logger.info("Added reply to comment %s on %s/%s", comment_id, project, section)
+        return ok({"created": row_to_dict(row)})
+    except Exception as e:
+        logger.error("prd_add_comment_reply: %s", e)
+        return err(str(e))
+
+
+# --- Group 8: Project Settings ---
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+)
+async def prd_get_settings(project: str) -> str:
+    """Get project settings (merged defaults + overrides)."""
+    try:
+        pool = await get_pool()
+        pid = await resolve_project_id(pool, project)
+        if not pid:
+            return err(f"project '{project}' not found")
+        settings = await get_project_settings(pool, pid)
+        return ok({"project": project, "settings": settings})
+    except Exception as e:
+        logger.error("prd_get_settings: %s", e)
+        return err(str(e))
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+)
+async def prd_update_settings(project: str, settings: dict) -> str:
+    """Update project settings. Only known keys with correct types are accepted."""
+    clean, errors = validate_settings(settings)
+    if errors:
+        return err(f"invalid settings: {'; '.join(errors)}")
+    if not clean:
+        return err("no valid settings provided")
+    try:
+        pool = await get_pool()
+        pid = await resolve_project_id(pool, project)
+        if not pid:
+            return err(f"project '{project}' not found")
+        import json as _json
+        await pool.execute("""
+            INSERT INTO project_settings (project_id, settings)
+            VALUES ($1, $2::jsonb)
+            ON CONFLICT (project_id)
+            DO UPDATE SET settings = project_settings.settings || $2::jsonb
+        """, pid, _json.dumps(clean))
+        updated = await get_project_settings(pool, pid)
+        logger.info("Updated settings for %s: %s", project, clean)
+        return ok({"project": project, "settings": updated})
+    except Exception as e:
+        logger.error("prd_update_settings: %s", e)
         return err(str(e))
 
 

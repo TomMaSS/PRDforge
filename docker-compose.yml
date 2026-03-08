@@ -11,6 +11,8 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./db/01_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
       - ./db/02_seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+      - ./db/03_comments.sql:/docker-entrypoint-initdb.d/03_comments.sql:ro
+      - ./db/04_replies_and_settings.sql:/docker-entrypoint-initdb.d/04_replies_and_settings.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prdforge}"]
       interval: 3s
@@ -19,7 +21,9 @@ services:
     restart: unless-stopped
 
   mcp-server:
-    build: ./mcp_server
+    build:
+      context: .
+      dockerfile: mcp_server/Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-prdforge}:${POSTGRES_PASSWORD:-prdforge}@postgres:5432/${POSTGRES_DB:-prdforge}
     ports:
@@ -37,7 +41,9 @@ services:
     restart: unless-stopped
 
   ui:
-    build: ./ui
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-prdforge}:${POSTGRES_PASSWORD:-prdforge}@postgres:5432/${POSTGRES_DB:-prdforge}
     ports:

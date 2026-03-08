@@ -2,14 +2,15 @@
 
 ## Project Overview
 
-PRD Forge is a self-hosted sectional PRD management system. It stores documents in PostgreSQL split into independently addressable sections, and exposes 20 MCP tools for Claude to read/write individual sections with dependency-aware context loading.
+PRD Forge is a self-hosted sectional PRD management system. It stores documents in PostgreSQL split into independently addressable sections, and exposes 27 MCP tools for Claude to read/write individual sections with dependency-aware context loading. The web UI supports inline comments (Google Docs-style) with threaded replies, a vertical nav rail, and per-project settings.
 
 ## Architecture
 
 Three Docker Compose services:
-- **PostgreSQL 16** (`postgres:16-alpine`) — 4 tables, 2 views, schema in `db/01_init.sql`, seed in `db/02_seed.sql`
-- **MCP Server** (`mcp_server/server.py`, ~650 lines) — FastMCP with 20 tools, asyncpg, stdio + HTTP transports
-- **Web UI** (`ui/app.py`, ~400 lines) — FastAPI, read-only, dark theme, vendored marked.js
+- **PostgreSQL 16** (`postgres:16-alpine`) — 7 tables, 2 views, schema in `db/01_init.sql`, seed in `db/02_seed.sql`, comments in `db/03_comments.sql`, replies+settings in `db/04_replies_and_settings.sql`
+- **MCP Server** (`mcp_server/server.py`, ~850 lines) — FastMCP with 27 tools, asyncpg, stdio + HTTP transports
+- **Web UI** (`ui/app.py`, ~750 lines) — FastAPI, dark theme with vertical nav rail, inline comments with replies, project settings
+- **Shared** (`shared/settings.py`) — Settings schema + validation, imported by both MCP server and UI
 
 ## Key Design Principles
 
@@ -29,14 +30,17 @@ Three Docker Compose services:
 
 | File | Purpose | ~Lines |
 |------|---------|--------|
-| `docker-compose.yml` | 3-service stack definition | 45 |
+| `docker-compose.yml` | 3-service stack definition | 50 |
 | `db/01_init.sql` | Schema DDL (tables, indexes, triggers, views) | 140 |
 | `db/02_seed.sql` | ContentForge sample data (13 sections, 15 deps) | 200+ |
-| `mcp_server/server.py` | MCP server with 20 tools | 650 |
-| `ui/app.py` | FastAPI read-only web UI | 400 |
-| `tests/conftest.py` | Test fixtures (db pool, cleanup, monkeypatch) | 80 |
-| `tests/test_mcp_tools.py` | MCP tool tests (30+ tests) | 350 |
-| `tests/test_ui_api.py` | UI endpoint tests (8 tests) | 120 |
+| `db/03_comments.sql` | Inline comments table (section_comments) | 20 |
+| `db/04_replies_and_settings.sql` | Comment replies + project settings tables | 40 |
+| `shared/settings.py` | Settings schema, defaults, validation (shared) | 25 |
+| `mcp_server/server.py` | MCP server with 27 tools | 850 |
+| `ui/app.py` | FastAPI web UI with nav rail, replies, settings | 750 |
+| `tests/conftest.py` | Test fixtures (db pool, cleanup, monkeypatch) | 50 |
+| `tests/test_mcp_tools.py` | MCP tool tests (40+ tests) | 550 |
+| `tests/test_ui_api.py` | UI endpoint tests (20+ tests) | 250 |
 
 ## MCP Tool Groups
 
@@ -44,7 +48,11 @@ Three Docker Compose services:
 
 **Group 2 — Section CRUD (7):** `prd_list_sections`, `prd_read_section` (primary tool — 3 queries), `prd_create_section`, `prd_update_section` (atomic revision), `prd_delete_section`, `prd_move_section`, `prd_duplicate_section`
 
-**Group 3 — Dependencies (2):** `prd_add_dependency` (idempotent upsert, same-project validation), `prd_remove_dependency`
+**Group 3a — Dependencies (2):** `prd_add_dependency` (idempotent upsert, same-project validation), `prd_remove_dependency`
+
+**Group 3b — Inline Comments (3):** `prd_add_comment` (anchored to selected text with prefix/suffix context), `prd_resolve_comment` (mark as done after implementing, ownership-validated), `prd_delete_comment` (ownership-validated)
+
+**Group 3c — Comment Replies (1):** `prd_add_comment_reply` (threaded replies with author 'user'/'claude', ownership-validated)
 
 **Group 4 — Context & Search (3):** `prd_get_overview` (starting point), `prd_search` (FTS + tag:prefix), `prd_get_changelog`
 
@@ -54,12 +62,17 @@ Three Docker Compose services:
 
 **Group 7 — Batch (1):** `prd_bulk_status`
 
+**Group 8 — Project Settings (2):** `prd_get_settings` (merged defaults + DB overrides), `prd_update_settings` (validates against SETTINGS_SCHEMA)
+
 ## Database Schema Quick Reference
 
 - **projects** — id, name, slug (unique), description, version, created_at, updated_at
 - **sections** — id, project_id, parent_section_id, slug, title, section_type, sort_order, status, content, summary, tags[], notes, word_count (generated), created_at, updated_at. UNIQUE(project_id, slug), UNIQUE(project_id, id)
 - **section_revisions** — id, section_id, revision_number, content, summary, change_description, created_at. UNIQUE(section_id, revision_number)
 - **section_dependencies** — id, project_id, section_id, depends_on_id, dependency_type, description. Composite FKs enforce same-project. UNIQUE(section_id, depends_on_id)
+- **section_comments** — id, section_id, anchor_text, anchor_prefix, anchor_suffix, body, resolved, created_at, updated_at. Text anchoring uses prefix/suffix context (~40 chars each) for disambiguation.
+- **comment_replies** — id, comment_id (FK section_comments), author ('user'|'claude' CHECK), body, created_at. Threaded replies on comments.
+- **project_settings** — project_id (PK, FK projects), settings (JSONB, merged with defaults at read time), updated_at. Auto-trigger on update.
 - **section_tree** (view) — sections + project_slug, parent_slug, parent_title, revision_count, dep_out_count, dep_in_count
 - **project_changelog** (view) — revisions joined with section and project slugs
 
@@ -79,15 +92,24 @@ Three Docker Compose services:
 
 **Adding a UI endpoint:**
 1. Add the route to `ui/app.py`
-2. Query the pool directly (read-only only)
+2. Query the pool directly
 3. Add a test in `test_ui_api.py`
+
+**After ANY changes:**
+1. Update `README.md` — architecture diagram, tool reference table, data model diagram, project structure tree, and any affected sections
+2. Update `AGENTS.md` — file map (line counts), tool groups, schema reference, gotchas
+3. Keep tool counts, table counts, and line estimates accurate across both docs
 
 **Running tests:**
 ```bash
 docker compose up -d postgres
-pip install -r tests/requirements.txt
-pytest tests/ -v
+cd /Users/artem/git/personal/PRDforge
+uvx --from pytest pytest tests/ -v --override asyncpg --override fastapi --override httpx --override uvicorn
+# Or with a venv:
+python -m venv .venv && .venv/bin/pip install -r tests/requirements.txt
+.venv/bin/pytest tests/ -v
 ```
+**Important:** Always use `uvx` or a virtual environment for running tests — never install packages into the global Python environment.
 
 ## Gotchas
 
@@ -100,6 +122,11 @@ pytest tests/ -v
 - Cross-project dependency guard: composite FK at schema level + INSERT...SELECT with JOIN at app level
 - Import parser only splits on `## ` (h2 headings) — `###` and deeper are part of the section body
 - `/health` endpoint is a v1.1 addition beyond the original PRD §5.1 spec (5 routes → 6)
+- Inline comments use text anchoring (prefix + anchor_text + suffix) not character offsets — survives minor content edits. If anchor text can't be found after major edits, comment becomes "orphaned" (shown in panel but not highlighted)
+- Comment highlights use `range.surroundContents()` which fails if selection spans multiple DOM elements — in that case the comment is still saved and shown in the panel, just without inline highlight
+- **Comment ownership validation:** ALL comment mutation routes/tools (resolve, delete, reply) MUST validate that the comment belongs to the specified project/section using a JOIN through `sections → projects`. Use `resolve_comment_id()` helper in MCP server, or inline ownership JOIN in UI endpoints. Never mutate by comment_id alone.
+- **Shared settings module:** `shared/settings.py` is the single source of truth for `SETTINGS_SCHEMA` and `validate_settings()`. Both `server.py` and `app.py` import from it via `sys.path.insert(0, "..")`
+- `prd_update_section` supports `resolve_comments` param — atomically resolves comments + auto-replies if `claude_comment_replies` setting is enabled
 
 ## Residual Risks
 

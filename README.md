@@ -15,14 +15,15 @@ PRD Forge approach: each section has a `content` field (full body, loaded when e
 ```mermaid
 graph LR
     A[Claude.ai / Claude Code / Claude Desktop] <-->|MCP Protocol| B[MCP Server<br/>FastMCP/Python<br/>:8080]
-    B <-->|asyncpg| C[(PostgreSQL 16<br/>sections, revisions<br/>dependencies)]
-    D[Web UI<br/>FastAPI<br/>:8088] -->|read-only| C
+    B <-->|asyncpg| C[(PostgreSQL 16<br/>sections, revisions<br/>dependencies, comments)]
+    D[Web UI<br/>FastAPI<br/>:8088] <-->|read + comments| C
+    A -.->|reads comments| D
 ```
 
 Three services:
-- **PostgreSQL 16** — source of truth (4 tables, 2 views)
-- **MCP Server** — 20 tools for Claude integration (stdio + HTTP transports)
-- **Web UI** — read-only dark-theme browser interface
+- **PostgreSQL 16** — source of truth (7 tables, 2 views)
+- **MCP Server** — 27 tools for Claude integration (stdio + HTTP transports)
+- **Web UI** — dark-theme browser interface with inline comments, vertical nav rail, and project settings
 
 ## Quick Start
 
@@ -141,6 +142,23 @@ For clients that support streamable-http transport:
 | `prd_export_markdown` | Export | Full document as markdown | 15000+ |
 | `prd_import_markdown` | Import | Import from markdown (splits on ##) | — |
 | `prd_bulk_status` | Batch | Update status for multiple sections | — |
+| `prd_add_comment` | Comments | Add inline comment anchored to selected text | — |
+| `prd_resolve_comment` | Comments | Resolve/reopen a comment after implementing changes | — |
+| `prd_delete_comment` | Comments | Delete a comment | — |
+| `prd_add_comment_reply` | Replies | Add a reply to an inline comment | — |
+| `prd_get_settings` | Settings | Get project settings (merged defaults + overrides) | 50 |
+| `prd_update_settings` | Settings | Update project settings | — |
+
+## Inline Comments
+
+Google Docs-style comments anchored to specific text in any section:
+
+1. **In the UI** — select text in a section → click "+ Comment" → write your note → Save
+2. **Via MCP** — `prd_add_comment(project, section, anchor_text, body)` with optional `anchor_prefix`/`anchor_suffix` for disambiguation
+3. **Claude reads comments** — `prd_read_section` includes all comments with their anchor text and body
+4. **Resolve after implementing** — use `prd_resolve_comment` or click "Resolve" in the UI
+
+Workflow: leave comments like "Add rate limiting details" on specific text → tell Claude to read the section → Claude sees the comment and implements the change → resolve the comment.
 
 ## Data Model
 
@@ -150,6 +168,9 @@ erDiagram
     sections ||--o{ section_revisions : tracks
     sections ||--o{ section_dependencies : from
     sections ||--o{ section_dependencies : to
+    sections ||--o{ section_comments : has
+    section_comments ||--o{ comment_replies : has
+    projects ||--o| project_settings : has
     sections ||--o| sections : parent
 
     projects {
@@ -181,6 +202,23 @@ erDiagram
         uuid section_id FK
         uuid depends_on_id FK
         text dependency_type
+    }
+    section_comments {
+        uuid id PK
+        uuid section_id FK
+        text anchor_text
+        text body
+        boolean resolved
+    }
+    comment_replies {
+        uuid id PK
+        uuid comment_id FK
+        text author
+        text body
+    }
+    project_settings {
+        uuid project_id PK_FK
+        jsonb settings
     }
 ```
 
@@ -254,6 +292,16 @@ prd_update_section(project="contentforge", section="data-model",
 ```
 prd_read_section(section="tech-stack")  → see depended_by list
 # Then update each dependent section in order
+```
+
+**Comment-driven editing (auto-resolve):**
+```
+prd_read_section(project="contentforge", section="tech-stack")
+  → content + 2 open comments with IDs + replies
+prd_update_section(project="contentforge", section="tech-stack",
+    content="...updated...", change_description="Switched Redis to Valkey",
+    resolve_comments=["comment-id-1", "comment-id-2"])
+  → atomically updates content + resolves comments + auto-replies if setting enabled
 ```
 
 **Rollback:**
@@ -336,7 +384,12 @@ PRDforge/
 ├── prd.md
 ├── db/
 │   ├── 01_init.sql
-│   └── 02_seed.sql
+│   ├── 02_seed.sql
+│   ├── 03_comments.sql
+│   └── 04_replies_and_settings.sql
+├── shared/
+│   ├── __init__.py
+│   └── settings.py
 ├── mcp_server/
 │   ├── Dockerfile
 │   ├── requirements.txt

@@ -417,3 +417,161 @@ class TestBatch:
         ))
         assert set(result["updated"]) == {"a", "b"}
         assert result["not_found"] == ["nonexistent"]
+
+
+class TestAutoResolve:
+    async def _setup(self, server):
+        await server.prd_create_project(name="AR", slug="ar-test")
+        await server.prd_create_section(
+            project="ar-test", slug="s1", title="S1", content="Original"
+        )
+        result = json.loads(await server.prd_add_comment(
+            project="ar-test", section="s1",
+            anchor_text="Original", body="Fix this"
+        ))
+        return result["created"]["id"]
+
+    async def test_update_with_resolve(self, mcp_pool):
+        import server
+        cid = await self._setup(server)
+        result = json.loads(await server.prd_update_section(
+            project="ar-test", section="s1",
+            content="Updated", change_description="Fixed it",
+            resolve_comments=[cid]
+        ))
+        assert "updated" in result
+        assert cid in result["resolved_comments"]
+        # Verify comment is resolved
+        sec = json.loads(await server.prd_read_section(project="ar-test", section="s1"))
+        comment = next(c for c in sec["comments"] if c["id"] == cid)
+        assert comment["resolved"] is True
+
+    async def test_resolve_wrong_section(self, mcp_pool):
+        import server
+        cid = await self._setup(server)
+        await server.prd_create_section(project="ar-test", slug="s2", title="S2", content="Other")
+        result = json.loads(await server.prd_update_section(
+            project="ar-test", section="s2",
+            content="Updated s2", change_description="Trying wrong section",
+            resolve_comments=[cid]
+        ))
+        assert "updated" in result
+        assert result.get("resolved_comments", []) == []
+        # Comment should still be unresolved
+        sec = json.loads(await server.prd_read_section(project="ar-test", section="s1"))
+        comment = next(c for c in sec["comments"] if c["id"] == cid)
+        assert comment["resolved"] is False
+
+    async def test_bad_uuid_skipped(self, mcp_pool):
+        import server
+        cid = await self._setup(server)
+        result = json.loads(await server.prd_update_section(
+            project="ar-test", section="s1",
+            content="Updated", change_description="Bad UUID test",
+            resolve_comments=["not-a-uuid", cid]
+        ))
+        assert "updated" in result
+        assert cid in result["resolved_comments"]
+
+    async def test_already_resolved_idempotent(self, mcp_pool):
+        import server
+        cid = await self._setup(server)
+        # Resolve it first
+        await server.prd_resolve_comment(project="ar-test", section="s1", comment_id=cid)
+        # Try to resolve again via update
+        result = json.loads(await server.prd_update_section(
+            project="ar-test", section="s1",
+            content="Updated again", change_description="Already resolved",
+            resolve_comments=[cid]
+        ))
+        assert "updated" in result
+        assert result.get("resolved_comments", []) == []
+
+
+class TestCommentReplies:
+    async def _setup(self, server):
+        await server.prd_create_project(name="CR", slug="cr-test")
+        await server.prd_create_section(
+            project="cr-test", slug="s1", title="S1", content="Content"
+        )
+        result = json.loads(await server.prd_add_comment(
+            project="cr-test", section="s1",
+            anchor_text="Content", body="Please clarify"
+        ))
+        return result["created"]["id"]
+
+    async def test_add_reply(self, mcp_pool):
+        import server
+        cid = await self._setup(server)
+        result = json.loads(await server.prd_add_comment_reply(
+            project="cr-test", section="s1", comment_id=cid,
+            body="Clarified!", author="claude"
+        ))
+        assert "created" in result
+        assert result["created"]["author"] == "claude"
+        assert result["created"]["body"] == "Clarified!"
+
+    async def test_reply_in_read_section(self, mcp_pool):
+        import server
+        cid = await self._setup(server)
+        await server.prd_add_comment_reply(
+            project="cr-test", section="s1", comment_id=cid,
+            body="Reply text", author="claude"
+        )
+        sec = json.loads(await server.prd_read_section(project="cr-test", section="s1"))
+        comment = next(c for c in sec["comments"] if c["id"] == cid)
+        assert len(comment["replies"]) == 1
+        assert comment["replies"][0]["body"] == "Reply text"
+
+    async def test_reply_nonexistent_comment(self, mcp_pool):
+        import server
+        await server.prd_create_project(name="CRN", slug="crn-test")
+        await server.prd_create_section(project="crn-test", slug="s1", title="S1")
+        result = json.loads(await server.prd_add_comment_reply(
+            project="crn-test", section="s1",
+            comment_id="00000000-0000-0000-0000-000000000000",
+            body="Ghost reply"
+        ))
+        assert "error" in result
+
+
+class TestProjectSettings:
+    async def test_get_defaults(self, mcp_pool):
+        import server
+        result = json.loads(await server.prd_get_settings(project="contentforge"))
+        assert result["settings"]["claude_comment_replies"] is True
+
+    async def test_update_and_get(self, mcp_pool):
+        import server
+        await server.prd_create_project(name="Set", slug="set-test")
+        result = json.loads(await server.prd_update_settings(
+            project="set-test", settings={"claude_comment_replies": False}
+        ))
+        assert result["settings"]["claude_comment_replies"] is False
+        # Verify via get
+        result2 = json.loads(await server.prd_get_settings(project="set-test"))
+        assert result2["settings"]["claude_comment_replies"] is False
+
+    async def test_partial_update(self, mcp_pool):
+        import server
+        await server.prd_create_project(name="Partial", slug="partial-test")
+        await server.prd_update_settings(
+            project="partial-test", settings={"claude_comment_replies": False}
+        )
+        # Update same key
+        result = json.loads(await server.prd_update_settings(
+            project="partial-test", settings={"claude_comment_replies": True}
+        ))
+        assert result["settings"]["claude_comment_replies"] is True
+
+    async def test_invalid_setting(self, mcp_pool):
+        import server
+        result = json.loads(await server.prd_update_settings(
+            project="contentforge", settings={"unknown_key": True}
+        ))
+        assert "error" in result
+        # Wrong type
+        result2 = json.loads(await server.prd_update_settings(
+            project="contentforge", settings={"claude_comment_replies": "yes"}
+        ))
+        assert "error" in result2
