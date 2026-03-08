@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-prdforge}
+      POSTGRES_USER: ${POSTGRES_USER:-prdforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prdforge}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/01_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./db/02_seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prdforge}"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+    restart: unless-stopped
+
+  mcp-server:
+    build: ./mcp_server
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-prdforge}:${POSTGRES_PASSWORD:-prdforge}@postgres:5432/${POSTGRES_DB:-prdforge}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python server.py --http 8080
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('localhost', 8080), 2); s.close()\""]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  ui:
+    build: ./ui
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-prdforge}:${POSTGRES_PASSWORD:-prdforge}@postgres:5432/${POSTGRES_DB:-prdforge}
+    ports:
+      - "127.0.0.1:8088:8088"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,0 +1,4 @@
+Version: 15.0.7
+Source: https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js
+License: MIT
+Update: curl -L -o static/marked.min.js "https://cdn.jsdelivr.net/npm/marked@<VERSION>/marked.min.js"
