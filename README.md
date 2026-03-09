@@ -207,7 +207,7 @@ erDiagram
         text content
         text summary
         text status
-        text[] tags
+        text tags
         int word_count
     }
     section_revisions {
@@ -238,8 +238,8 @@ erDiagram
         text body
     }
     project_settings {
-        uuid project_id PK_FK
-        jsonb settings
+        uuid project_id PK
+        json settings
     }
 ```
 
