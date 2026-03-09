@@ -1,4 +1,4 @@
-"""PRD Forge MCP Server — 27 tools for sectional PRD management."""
+"""PRD Forge MCP Server — 28 tools for sectional PRD management."""
 
 import argparse
 import json
@@ -668,6 +668,46 @@ async def prd_remove_dependency(project: str, section: str, depends_on: str) -> 
 
 
 # --- Group 3b: Inline Comments ---
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+)
+async def prd_list_comments(project: str, include_resolved: bool = False) -> str:
+    """List all comments across the project with section pointers. Use this FIRST to find which sections have feedback, then read only those sections. Much cheaper than reading every section."""
+    try:
+        pool = await get_pool()
+        pid = await resolve_project_id(pool, project)
+        if not pid:
+            return err(f"project '{project}' not found")
+        query = """
+            SELECT c.id, c.anchor_text, c.body, c.resolved, c.created_at,
+                   s.slug AS section_slug, s.title AS section_title
+            FROM section_comments c
+            JOIN sections s ON s.id = c.section_id
+            WHERE s.project_id = $1
+        """
+        if not include_resolved:
+            query += " AND c.resolved = false"
+        query += " ORDER BY s.sort_order, c.created_at"
+        rows = await pool.fetch(query, pid)
+        comments = [row_to_dict(r) for r in rows]
+        by_section = {}
+        for c in comments:
+            key = c["section_slug"]
+            by_section.setdefault(key, {"section_title": c["section_title"], "comments": []})
+            by_section[key]["comments"].append({
+                "id": c["id"], "anchor_text": c["anchor_text"],
+                "body": c["body"], "resolved": c["resolved"],
+            })
+        return ok({
+            "total": len(comments),
+            "sections_with_comments": len(by_section),
+            "by_section": by_section,
+        })
+    except Exception as e:
+        logger.error("prd_list_comments: %s", e)
+        return err(str(e))
+
 
 @mcp.tool(
     annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}

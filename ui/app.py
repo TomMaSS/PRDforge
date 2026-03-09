@@ -87,9 +87,25 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 .sidebar-header .meta{font-size:12px;color:var(--text-sec)}
 .sidebar-header select{width:100%;margin-top:8px;padding:6px 8px;background:var(--secondary);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px}
 .sidebar-header .export-btn{display:inline-block;margin-top:8px;padding:4px 12px;background:var(--accent);color:#fff;border-radius:6px;font-size:12px;text-decoration:none;font-weight:500}
-.filters{padding:8px 12px;display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--border)}
+.filters{padding:8px 12px;display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--border);align-items:center}
 .chip{padding:2px 8px;border-radius:12px;font-size:11px;cursor:pointer;border:1px solid var(--border);color:var(--text-sec);transition:all .15s}
 .chip:hover,.chip.active{border-color:var(--accent);color:var(--accent)}
+.tag-dropdown{position:relative;display:inline-block}
+.tag-dropdown-btn{padding:2px 8px;border-radius:12px;font-size:11px;cursor:pointer;border:1px solid var(--border);color:var(--text-sec);transition:all .15s;background:none;font-family:inherit;display:flex;align-items:center;gap:4px}
+.tag-dropdown-btn:hover,.tag-dropdown-btn.active{border-color:var(--accent);color:var(--accent)}
+.tag-dropdown-btn svg{width:10px;height:10px}
+.tag-dropdown-menu{display:none;position:absolute;top:calc(100% + 4px);left:0;background:var(--secondary);border:1px solid var(--border);border-radius:8px;padding:6px;min-width:220px;max-height:300px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+.tag-dropdown-menu.open{display:flex;flex-direction:column;gap:6px}
+.tag-search{width:100%;padding:5px 8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box}
+.tag-search:focus{border-color:var(--accent)}
+.tag-search::placeholder{color:var(--text-muted)}
+.tag-list{display:flex;flex-wrap:wrap;gap:4px;overflow-y:auto;max-height:220px;padding:2px 0}
+.tag-item{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;border:1.5px solid transparent;user-select:none}
+.tag-item:hover{opacity:.85}
+.tag-item.selected{border-color:#fff3;box-shadow:0 0 0 1px rgba(255,255,255,.15)}
+.tag-item.all-tag{background:var(--bg);color:var(--text-sec);border:1px solid var(--border)}
+.tag-item.all-tag.selected{border-color:var(--accent);color:var(--accent)}
+.tag-count{background:var(--accent);color:#fff;border-radius:8px;padding:0 5px;font-size:10px;font-weight:600;min-width:14px;text-align:center}
 .section-list{flex:1;overflow-y:auto;padding:4px 0}
 .section-item{padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s}
 .section-item:hover{background:var(--secondary)}
@@ -99,7 +115,8 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}
 
 /* Main Panel */
-.main{flex:1;overflow-y:auto;padding:40px 56px;display:flex;justify-content:center}
+.main{flex:1;overflow-y:auto;padding:40px 56px;display:flex;justify-content:center;position:relative}
+.main.graph-mode{padding:0;overflow:hidden}
 .content-wrap{max-width:780px;width:100%}
 .section-title{font-size:26px;font-weight:700;margin-bottom:8px;color:#f0f1f5}
 .meta-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;font-size:13px;color:var(--text-sec)}
@@ -160,20 +177,35 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 .cl-item .cl-time{color:var(--text-muted);font-size:11px}
 
 /* Deps Graph Tab */
-.deps-graph{padding:0;overflow-y:auto;flex:1;font-size:13px}
-.deps-header{padding:16px 16px 12px;border-bottom:1px solid var(--border)}
-.deps-header h3{font-size:14px;font-weight:600;color:#f0f1f5;margin-bottom:4px}
-.deps-header p{font-size:12px;color:var(--text-muted)}
-.dep-row{display:flex;align-items:center;gap:4px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:11px;white-space:nowrap;overflow:hidden}
+.deps-graph{padding:16px;overflow-y:auto;flex:1;font-size:13px}
+.dep-row{display:flex;align-items:center;gap:4px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:11px;flex-wrap:wrap}
 .dep-row:hover{background:var(--secondary)}
 .dep-from,.dep-to{font-weight:500;color:var(--text);cursor:pointer}
 .dep-from:hover,.dep-to:hover{color:var(--accent)}
 .dep-arrow{color:var(--accent);flex-shrink:0}
-.dep-type{padding:1px 5px;border-radius:4px;font-size:9px;font-weight:500;flex-shrink:0;margin-left:auto}
+.dep-type-lbl{padding:1px 5px;border-radius:4px;font-size:9px;font-weight:500;flex-shrink:0;margin-left:auto}
 .dep-type-references{background:rgba(99,102,241,0.12);color:#818cf8}
 .dep-type-implements{background:rgba(59,130,246,0.12);color:#60a5fa}
 .dep-type-extends{background:rgba(16,185,129,0.12);color:#34d399}
 .dep-type-blocks{background:rgba(239,68,68,0.12);color:#f87171}
+.graph-wrap{position:absolute;inset:0;overflow:hidden}
+.graph-wrap canvas{width:100%;height:100%;display:block}
+.graph-legend{position:absolute;bottom:12px;left:12px;display:flex;gap:12px;font-size:11px;color:#9496ad;background:rgba(43,45,53,0.9);padding:6px 14px;border-radius:8px;backdrop-filter:blur(4px)}
+.graph-legend span{display:flex;align-items:center;gap:4px}
+.graph-legend i{width:20px;height:3px;border-radius:2px;display:inline-block}
+.graph-status-legend{position:absolute;top:12px;right:12px;display:flex;flex-direction:column;gap:4px;font-size:11px;color:#9496ad;background:rgba(43,45,53,0.9);padding:8px 12px;border-radius:8px;backdrop-filter:blur(4px)}
+.graph-status-legend span{display:flex;align-items:center;gap:6px}
+.graph-status-legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.graph-popup{position:absolute;width:300px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:0;box-shadow:0 8px 30px rgba(0,0,0,.5);z-index:200;overflow:hidden}
+.graph-popup-header{padding:12px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);transition:background .1s}
+.graph-popup-header:hover{background:var(--secondary)}
+.graph-popup-header .status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.graph-popup-header h4{font-size:14px;font-weight:600;color:var(--accent);margin:0;flex:1}
+.graph-popup-header .open-icon{color:var(--text-muted);font-size:11px}
+.graph-popup-body{padding:10px 14px;font-size:12px;color:var(--text-sec);line-height:1.5;max-height:180px;overflow-y:auto}
+.graph-popup-meta{padding:8px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted);display:flex;gap:8px;flex-wrap:wrap}
+.graph-popup-tags{display:flex;gap:3px;flex-wrap:wrap;padding:0 14px 10px}
+.graph-popup-tags span{padding:1px 6px;border-radius:4px;font-size:10px;color:#fff;font-weight:500}
 
 /* Inline comments */
 .comment-hl{background:rgba(245,158,11,0.18);border-bottom:2px solid var(--notes-accent);cursor:pointer;transition:background .15s;border-radius:2px}
@@ -337,26 +369,43 @@ async function switchProject(slug){
   renderChangelog();
   renderDepsGraph();
   loadGlobalComments();
-  activeSection=null;
+  activeSection=null;activeFilter=null;activeTags=[];
+  clearGraph();
   document.getElementById('mainContent').innerHTML='<div class="empty">Select a section to view</div>';
 }
 
+let activeTags=[];
+const TAG_COLORS=['#6c5ce7','#636e72','#00b894','#e17055','#0984e3','#d63031','#fdcb6e','#00cec9','#e84393','#55efc4','#74b9ff','#fab1a0','#a29bfe','#ffeaa7','#dfe6e9','#b2bec3','#fd79a8','#81ecec'];
+function tagColor(t){let h=0;for(let i=0;i<t.length;i++)h=t.charCodeAt(i)+((h<<5)-h);return TAG_COLORS[Math.abs(h)%TAG_COLORS.length]}
 function renderFilters(){
   const statuses=[...new Set(projectData.sections.map(s=>s.status))];
-  const tags=[...new Set(projectData.sections.flatMap(s=>s.tags||[]))];
+  const tags=[...new Set(projectData.sections.flatMap(s=>s.tags||[]))].sort();
   let html=statuses.map(s=>`<span class="chip ${activeFilter===s?'active':''}" onclick="toggleFilter('${s}')">${s.replace('_',' ')}</span>`).join('');
-  html+=tags.map(t=>`<span class="chip ${activeFilter==='tag:'+t?'active':''}" onclick="toggleFilter('tag:${t}')">${t}</span>`).join('');
+  if(tags.length){
+    const count=activeTags.length;
+    html+=`<div class="tag-dropdown"><button class="tag-dropdown-btn ${count?'active':''}" onclick="toggleTagMenu(event)">Tags${count?` <span class='tag-count'>${count}</span>`:''} <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5l3 3 3-3"/></svg></button>`;
+    html+=`<div class="tag-dropdown-menu" id="tagMenu">`;
+    html+=`<input class="tag-search" type="text" placeholder="Search tags..." oninput="filterTagList(this.value)">`;
+    html+=`<div class="tag-list" id="tagList">`;
+    html+=`<span class="tag-item all-tag ${!activeTags.length?'selected':''}" onclick="clearTags()">All</span>`;
+    html+=tags.map(t=>{const bg=tagColor(t);return`<span class="tag-item ${activeTags.includes(t)?'selected':''}" style="background:${bg};color:#fff" onclick="toggleTag('${t}')" data-tag="${t}">${t}</span>`}).join('');
+    html+=`</div></div></div>`;
+  }
   document.getElementById('filters').innerHTML=html;
 }
 
 function toggleFilter(f){activeFilter=activeFilter===f?null:f;renderFilters();renderSections()}
+function toggleTag(t){const i=activeTags.indexOf(t);if(i>=0)activeTags.splice(i,1);else activeTags.push(t);renderFilters();renderSections();reopenTagMenu()}
+function clearTags(){activeTags=[];renderFilters();renderSections();reopenTagMenu()}
+function reopenTagMenu(){const m=document.getElementById('tagMenu');if(m)m.classList.add('open')}
+function toggleTagMenu(e){e.stopPropagation();const m=document.getElementById('tagMenu');m.classList.toggle('open')}
+function filterTagList(q){const items=document.querySelectorAll('#tagList .tag-item[data-tag]');q=q.toLowerCase();items.forEach(el=>{el.style.display=el.dataset.tag.toLowerCase().includes(q)?'':'none'})}
+document.addEventListener('click',e=>{const m=document.getElementById('tagMenu');if(m&&!m.contains(e.target)&&!e.target.closest('.tag-dropdown-btn'))m.classList.remove('open')})
 
 function renderSections(){
   let secs=projectData.sections;
-  if(activeFilter){
-    if(activeFilter.startsWith('tag:'))secs=secs.filter(s=>(s.tags||[]).includes(activeFilter.slice(4)));
-    else secs=secs.filter(s=>s.status===activeFilter);
-  }
+  if(activeFilter)secs=secs.filter(s=>s.status===activeFilter);
+  if(activeTags.length)secs=secs.filter(s=>activeTags.some(t=>(s.tags||[]).includes(t)));
   document.getElementById('sectionList').innerHTML=secs.map(s=>`
     <div class="section-item ${activeSection===s.slug?'active':''}" onclick="loadSection('${s.slug}')">
       <div class="title"><span class="status-dot" style="background:${STATUS_COLORS[s.status]||'var(--draft)'}"></span>${s.title}</div>
@@ -376,21 +425,139 @@ function renderChangelog(){
 
 function renderDepsGraph(){
   const deps=projectData.dependencies||[];
-  if(!deps.length){document.getElementById('depsGraph').innerHTML='<div class="empty">No dependencies</div>';return}
-  let html=`<div class="deps-header"><h3>Dependencies (${deps.length})</h3><p>How sections depend on each other</p></div>`;
-  html+=deps.map(d=>{
-    const t=d.dependency_type||'informs';
+  const container=document.getElementById('depsGraph');
+  if(!deps.length){container.innerHTML='<div class="empty" style="padding:40px">No dependencies</div>';return}
+  let html=deps.map(d=>{
+    const t=d.dependency_type||'references';
     return `<div class="dep-row">
       <span class="dep-from" onclick="loadSection('${d.from_slug}')">${d.from_slug}</span>
       <span class="dep-arrow">→</span>
       <span class="dep-to" onclick="loadSection('${d.to_slug}')">${d.to_slug}</span>
-      <span class="dep-type dep-type-${t}">${t}</span>
+      <span class="dep-type-lbl dep-type-${t}">${t}</span>
     </div>`;
   }).join('');
-  document.getElementById('depsGraph').innerHTML=html;
+  container.innerHTML=html;
+}
+
+function wrapTextInCircle(ctx,text,cx,cy,r,fontSize){
+  const words=text.split(/\s+/);const lh=fontSize*1.2;const lines=[];let line='';
+  for(const w of words){const test=line?line+' '+w:w;if(ctx.measureText(test).width>r*1.6&&line){lines.push(line);line=w}else line=test}
+  if(line)lines.push(line);
+  if(lines.length===1&&ctx.measureText(lines[0]).width>r*1.6){const t=lines[0];lines.length=0;const mid=Math.ceil(t.length/2);let bp=t.lastIndexOf(' ',mid);if(bp<1)bp=mid;lines.push(t.slice(0,bp).trim());lines.push(t.slice(bp).trim())}
+  const maxLines=3;if(lines.length>maxLines){lines.length=maxLines;lines[maxLines-1]=lines[maxLines-1].slice(0,-1)+'…'}
+  const startY=cy-((lines.length-1)*lh)/2;
+  lines.forEach((l,i)=>ctx.fillText(l,cx,startY+i*lh));
+}
+let _graphAnim=null,_graphObserver=null;
+function clearGraph(){
+  if(_graphAnim){cancelAnimationFrame(_graphAnim);_graphAnim=null}
+  if(_graphObserver){_graphObserver.disconnect();_graphObserver=null}
+  document.querySelector('.main').classList.remove('graph-mode');
+}
+function showMainGraph(){
+  if(_graphAnim){cancelAnimationFrame(_graphAnim);_graphAnim=null}
+  if(_graphObserver){_graphObserver.disconnect();_graphObserver=null}
+  const deps=projectData.dependencies||[];
+  const mainEl=document.querySelector('.main');
+  const mc=document.getElementById('mainContent');
+  if(!deps.length){mainEl.classList.remove('graph-mode');mc.innerHTML='<div class="empty">No dependencies defined</div>';return}
+  mainEl.classList.add('graph-mode');
+  mc.innerHTML=`<div class="graph-wrap"><canvas id="mainGraphCanvas"></canvas><div class="graph-legend"><span><i style="background:#818cf8"></i>references</span><span><i style="background:#60a5fa"></i>implements</span><span><i style="background:#34d399"></i>extends</span><span><i style="background:#f87171"></i>blocks</span></div><div class="graph-status-legend"><span><i style="background:#9496ad"></i>draft</span><span><i style="background:#6366f1"></i>in progress</span><span><i style="background:#f59e0b"></i>review</span><span><i style="background:#10b981"></i>approved</span><span><i style="background:#ef4444"></i>outdated</span></div></div>`;
+  const wrap=mc.querySelector('.graph-wrap');
+  const canvas=document.getElementById('mainGraphCanvas');
+  const ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  function resize(){const r=wrap.getBoundingClientRect();canvas.width=r.width*dpr;canvas.height=r.height*dpr;canvas.style.width=r.width+'px';canvas.style.height=r.height+'px';ctx.setTransform(dpr,0,0,dpr,0,0)}
+  resize();
+  const W=()=>canvas.width/dpr,H=()=>canvas.height/dpr;
+  const EDGE_COLORS={references:'#818cf8',implements:'#60a5fa',extends:'#34d399',blocks:'#f87171'};
+  const NODE_COLORS={draft:'#9496ad',in_progress:'#6366f1',review:'#f59e0b',approved:'#10b981',outdated:'#ef4444'};
+  const slugSet=new Set();
+  deps.forEach(d=>{slugSet.add(d.from_slug);slugSet.add(d.to_slug)});
+  const nodeMap={};
+  const secs=projectData.sections||[];
+  slugSet.forEach(slug=>{
+    const s=secs.find(x=>x.slug===slug)||{};
+    nodeMap[slug]={slug,title:s.title||slug,status:s.status||'draft',x:W()/2+(Math.random()-.5)*W()*.6,y:H()/2+(Math.random()-.5)*H()*.6,vx:0,vy:0,pinned:false};
+  });
+  const nodes=Object.values(nodeMap);
+  const edges=deps.map(d=>({from:d.from_slug,to:d.to_slug,type:d.dependency_type||'references'}));
+  const REPULSION=5000,SPRING=0.005,SPRING_LEN=200,DAMPING=0.85,CENTER=0.001,PAD=60;
+  let dragging=null,hovered=null,offX=0,offY=0,dragMoved=false;
+  function nodeRadius(){return 40}
+  function tick(){
+    nodes.forEach(a=>{if(a.pinned)return;
+      nodes.forEach(b=>{if(a===b)return;let dx=a.x-b.x,dy=a.y-b.y;let d=Math.sqrt(dx*dx+dy*dy)||1;let f=REPULSION/(d*d);a.vx+=dx/d*f;a.vy+=dy/d*f});
+      edges.forEach(e=>{let other=null;if(e.from===a.slug)other=nodeMap[e.to];else if(e.to===a.slug)other=nodeMap[e.from];else return;
+        let dx=a.x-other.x,dy=a.y-other.y,d=Math.sqrt(dx*dx+dy*dy)||1;let f=SPRING*(d-SPRING_LEN);a.vx-=dx/d*f;a.vy-=dy/d*f});
+      a.vx+=(W()/2-a.x)*CENTER;a.vy+=(H()/2-a.y)*CENTER;
+      a.vx*=DAMPING;a.vy*=DAMPING;a.x+=a.vx;a.y+=a.vy;
+      a.x=Math.max(PAD,Math.min(W()-PAD,a.x));a.y=Math.max(PAD,Math.min(H()-PAD,a.y))
+    });
+  }
+  function drawArrow(x1,y1,x2,y2,color){
+    const dx=x2-x1,dy=y2-y1,d=Math.sqrt(dx*dx+dy*dy)||1;
+    const r=nodeRadius()+2;const ax=x1+dx/d*r,ay=y1+dy/d*r,bx=x2-dx/d*r,by=y2-dy/d*r;
+    ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.globalAlpha=0.6;ctx.stroke();ctx.globalAlpha=1;
+    const hl=8,ha=Math.atan2(by-ay,bx-ax);
+    ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(bx-hl*Math.cos(ha-.35),by-hl*Math.sin(ha-.35));ctx.lineTo(bx-hl*Math.cos(ha+.35),by-hl*Math.sin(ha+.35));ctx.closePath();ctx.fillStyle=color;ctx.globalAlpha=0.8;ctx.fill();ctx.globalAlpha=1;
+  }
+  function draw(){
+    ctx.clearRect(0,0,W(),H());
+    edges.forEach(e=>{const a=nodeMap[e.from],b=nodeMap[e.to];if(!a||!b)return;
+      const isHL=hovered&&(e.from===hovered.slug||e.to===hovered.slug);
+      if(!isHL)drawArrow(a.x,a.y,b.x,b.y,EDGE_COLORS[e.type]||'#818cf8')});
+    edges.forEach(e=>{const a=nodeMap[e.from],b=nodeMap[e.to];if(!a||!b)return;
+      const isHL=hovered&&(e.from===hovered.slug||e.to===hovered.slug);
+      if(isHL){ctx.save();ctx.lineWidth=2.5;ctx.globalAlpha=1;drawArrow(a.x,a.y,b.x,b.y,EDGE_COLORS[e.type]||'#818cf8');ctx.restore()}});
+    nodes.forEach(n=>{
+      const r=nodeRadius();const isHov=hovered===n;const isDrag=dragging===n;
+      const isConn=hovered&&hovered!==n&&edges.some(e=>(e.from===hovered.slug&&e.to===n.slug)||(e.to===hovered.slug&&e.from===n.slug));
+      ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);
+      ctx.fillStyle=NODE_COLORS[n.status]||'#9496ad';ctx.globalAlpha=isHov||isDrag||isConn?1:hovered?0.4:0.85;ctx.fill();ctx.globalAlpha=1;
+      if(isHov||isDrag){ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke()}
+      else if(isConn){ctx.strokeStyle='rgba(255,255,255,0.4)';ctx.lineWidth=1.5;ctx.stroke()}
+      ctx.fillStyle='#fff';const fs=isHov?11:10;ctx.font=`${isHov?'600':'500'} ${fs}px Inter,sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.globalAlpha=isHov||isDrag||isConn?1:hovered?0.4:1;
+      wrapTextInCircle(ctx,n.title,n.x,n.y,r-6,fs);ctx.globalAlpha=1;
+    });
+  }
+  function animate(){tick();draw();_graphAnim=requestAnimationFrame(animate)}
+  animate();
+  function getNode(mx,my){return nodes.find(n=>{const dx=mx-n.x,dy=my-n.y;return dx*dx+dy*dy<=nodeRadius()*nodeRadius()})}
+  function getMousePos(e){const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
+  canvas.addEventListener('mousedown',e=>{if(e.target===canvas&&!getNode(...Object.values(getMousePos(e))))closeGraphPopup();const{x,y}=getMousePos(e);const n=getNode(x,y);if(n){dragging=n;n.pinned=true;dragMoved=false;offX=x-n.x;offY=y-n.y;canvas.style.cursor='grabbing'}});
+  canvas.addEventListener('mousemove',e=>{const{x,y}=getMousePos(e);if(dragging){const dx=x-offX-dragging.x,dy=y-offY-dragging.y;if(Math.abs(dx)>3||Math.abs(dy)>3)dragMoved=true;dragging.x=x-offX;dragging.y=y-offY}else{const n=getNode(x,y);hovered=n;canvas.style.cursor=n?'pointer':'default'}});
+  canvas.addEventListener('mouseup',e=>{if(dragging){const wasClick=!dragMoved;const node=dragging;dragging.pinned=false;dragging=null;canvas.style.cursor='default';if(wasClick)showGraphPopup(node,e,wrap)}});
+  canvas.addEventListener('mouseleave',()=>{if(dragging)dragging.pinned=false;dragging=null;hovered=null;canvas.style.cursor='default'});
+  _graphObserver=new ResizeObserver(()=>{resize()});_graphObserver.observe(wrap);
+}
+
+function closeGraphPopup(){const p=document.querySelector('.graph-popup');if(p)p.remove()}
+function showGraphPopup(node,e,wrap){
+  closeGraphPopup();
+  const sec=(projectData.sections||[]).find(s=>s.slug===node.slug);
+  const summary=sec&&sec.summary?sec.summary:'No summary available';
+  const status=sec?sec.status:'draft';
+  const tags=sec&&sec.tags?sec.tags:[];
+  const words=sec?sec.word_count:0;
+  const type=sec?sec.section_type:'general';
+  const sc=STATUS_COLORS[status]||'var(--draft)';
+  const pop=document.createElement('div');
+  pop.className='graph-popup';
+  let tagsHtml=tags.length?'<div class="graph-popup-tags">'+tags.map(t=>`<span style="background:${tagColor(t)}">${t}</span>`).join('')+'</div>':'';
+  pop.innerHTML=`<div class="graph-popup-header" onclick="closeGraphPopup();loadSection('${node.slug}')"><span class="status-dot" style="background:${sc}"></span><h4>${sec?sec.title:node.slug}</h4><span class="open-icon">Open →</span></div><div class="graph-popup-body">${summary}</div>${tagsHtml}<div class="graph-popup-meta"><span>${type}</span><span>${words} words</span><span>${status.replace('_',' ')}</span></div>`;
+  const rect=wrap.getBoundingClientRect();
+  let left=e.clientX-rect.left+12,top=e.clientY-rect.top-20;
+  if(left+310>rect.width)left=left-324;
+  if(top+250>rect.height)top=Math.max(10,rect.height-260);
+  if(top<10)top=10;
+  pop.style.left=left+'px';pop.style.top=top+'px';
+  wrap.appendChild(pop);
 }
 
 async function loadSection(slug){
+  clearGraph();
   activeSection=slug;
   renderSections();
   const res=await fetch(`/api/projects/${currentProject}/sections/${slug}`);
@@ -628,6 +795,7 @@ function renderCommentsPanel(comments){
     }
     html+=`<div class="actions">
         <button onclick="resolveComment('${c.id}')">${c.resolved?'Reopen':'Resolve'}</button>
+        <button onclick="editComment('${c.id}')">Edit</button>
         <button onclick="showReplyForm('${c.id}')">Reply</button>
         <button class="del-btn" onclick="deleteComment('${c.id}')">Delete</button>
       </div>
@@ -653,6 +821,26 @@ async function submitReply(cid,btn){
   if(!body)return;
   await fetch(`/api/projects/${currentProject}/sections/${activeSection}/comments/${cid}/replies`,{
     method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({body})
+  });
+  loadSection(activeSection);
+}
+
+function editComment(cid){
+  const card=document.querySelector(`.comment-card[data-id="${cid}"]`);
+  if(!card)return;
+  const bodyEl=card.querySelector('.body');
+  const actionsEl=card.querySelector('.actions');
+  const raw=bodyEl.textContent.trim();
+  bodyEl.innerHTML=`<textarea class="edit-comment-ta" style="width:100%;min-height:60px;background:var(--secondary);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-family:'Inter',sans-serif;font-size:13px;line-height:1.6;resize:vertical">${raw.replace(/</g,'&lt;')}</textarea>`;
+  actionsEl.innerHTML=`<button onclick="saveComment('${cid}',this)">Save</button><button onclick="loadSection(activeSection)">Cancel</button>`;
+  bodyEl.querySelector('textarea').focus();
+}
+async function saveComment(cid,btn){
+  const card=btn.closest('.comment-card');
+  const body=card.querySelector('.edit-comment-ta').value.trim();
+  if(!body)return;
+  await fetch(`/api/projects/${currentProject}/sections/${activeSection}/comments/${cid}`,{
+    method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({body})
   });
   loadSection(activeSection);
 }
@@ -719,6 +907,8 @@ function switchTab(tab){
   if(document.body.classList.contains('collapsed'))document.body.classList.remove('collapsed');
   if(tab==='comments')loadGlobalComments();
   if(tab==='settings')loadSettings();
+  if(tab==='deps'){activeSection=null;renderSections();showMainGraph()}
+  else{clearGraph()}
 }
 
 function toggleSidebar(){
@@ -937,6 +1127,25 @@ async def resolve_comment(slug: str, section: str, comment_id: str):
         return JSONResponse({"error": "comment not found"}, 404)
     await pool.execute("UPDATE section_comments SET resolved = $1 WHERE id = $2", not row["resolved"], row["id"])
     return {"ok": True, "resolved": not row["resolved"]}
+
+
+@app.patch("/api/projects/{slug}/sections/{section}/comments/{comment_id}")
+async def update_comment(slug: str, section: str, comment_id: str, request: Request):
+    body = await request.json()
+    new_body = body.get("body", "").strip()
+    if not new_body:
+        return JSONResponse({"error": "body required"}, 400)
+    cid = _uuid.UUID(comment_id)
+    row = await pool.fetchrow("""
+        SELECT c.id FROM section_comments c
+        JOIN sections s ON s.id = c.section_id
+        JOIN projects p ON p.id = s.project_id
+        WHERE c.id = $1 AND p.slug = $2 AND s.slug = $3
+    """, cid, slug, section)
+    if not row:
+        return JSONResponse({"error": "comment not found"}, 404)
+    await pool.execute("UPDATE section_comments SET body = $1 WHERE id = $2", new_body, row["id"])
+    return {"ok": True}
 
 
 @app.delete("/api/projects/{slug}/sections/{section}/comments/{comment_id}")

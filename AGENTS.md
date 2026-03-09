@@ -8,8 +8,8 @@ PRD Forge is a self-hosted sectional PRD management system. It stores documents 
 
 Three Docker Compose services:
 - **PostgreSQL 16** (`postgres:16-alpine`) — 7 tables, 2 views, schema in `db/01_init.sql`, seed in `db/02_seed.sql`, comments in `db/03_comments.sql`, replies+settings in `db/04_replies_and_settings.sql`
-- **MCP Server** (`mcp_server/server.py`, ~850 lines) — FastMCP with 27 tools, asyncpg, stdio + HTTP transports
-- **Web UI** (`ui/app.py`, ~750 lines) — FastAPI, dark theme with vertical nav rail, inline comments with replies, project settings
+- **MCP Server** (`mcp_server/server.py`, ~850 lines) — FastMCP with 28 tools, asyncpg, stdio + HTTP transports
+- **Web UI** (`ui/app.py`, ~850 lines) — FastAPI, dark theme with vertical nav rail, inline comments with replies, project settings, force-directed dependency graph
 - **Shared** (`shared/settings.py`) — Settings schema + validation, imported by both MCP server and UI
 
 ## Key Design Principles
@@ -50,7 +50,7 @@ Three Docker Compose services:
 
 **Group 3a — Dependencies (2):** `prd_add_dependency` (idempotent upsert, same-project validation), `prd_remove_dependency`
 
-**Group 3b — Inline Comments (3):** `prd_add_comment` (anchored to selected text with prefix/suffix context), `prd_resolve_comment` (mark as done after implementing, ownership-validated), `prd_delete_comment` (ownership-validated)
+**Group 3b — Inline Comments (4):** `prd_list_comments` (all comments across project with section pointers — use FIRST to find feedback), `prd_add_comment` (anchored to selected text with prefix/suffix context), `prd_resolve_comment` (mark as done after implementing, ownership-validated), `prd_delete_comment` (ownership-validated)
 
 **Group 3c — Comment Replies (1):** `prd_add_comment_reply` (threaded replies with author 'user'/'claude', ownership-validated)
 
@@ -75,6 +75,15 @@ Three Docker Compose services:
 - **project_settings** — project_id (PK, FK projects), settings (JSONB, merged with defaults at read time), updated_at. Auto-trigger on update.
 - **section_tree** (view) — sections + project_slug, parent_slug, parent_title, revision_count, dep_out_count, dep_in_count
 - **project_changelog** (view) — revisions joined with section and project slugs
+
+## UI Change Workflow
+
+**IMPORTANT: Design-first rule.** When making ANY UI changes (new features, layout changes, component additions), ALWAYS update the Pencil design file (`/Users/artem/git/design/main.pen`) FIRST using the Pencil MCP tools, then implement the code changes in `ui/app.py`. This ensures the design stays in sync with the implementation.
+
+1. Open the `.pen` file with `get_editor_state()`
+2. Find the relevant screen frame and update/add the design
+3. Verify with `get_screenshot()`
+4. Then implement the code changes
 
 ## Common Tasks
 

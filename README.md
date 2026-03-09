@@ -22,36 +22,64 @@ graph LR
 
 Three services:
 - **PostgreSQL 16** — source of truth (7 tables, 2 views)
-- **MCP Server** — 27 tools for Claude integration (stdio + HTTP transports)
+- **MCP Server** — 28 tools for Claude integration (stdio + HTTP transports)
 - **Web UI** — dark-theme browser interface with inline comments, vertical nav rail, and project settings
 
 ## Quick Start
 
 ```bash
-# Clone and start
 cd PRDforge
-docker compose up -d
-
-# UI available at
-open http://localhost:8088
-
-# MCP HTTP endpoint at
-# http://localhost:8080
+./install.sh
 ```
 
-The stack starts in ~15 seconds. PostgreSQL runs schema migration and seeds a sample "ContentForge" project on first boot.
+This single command:
+1. Starts Docker services (PostgreSQL, MCP server, Web UI)
+2. Configures your Claude client (Code or Desktop)
+3. Validates everything works
 
-## MCP Configuration
+```bash
+# Options
+./install.sh --claude-code      # Non-interactive (HTTP transport)
+./install.sh --claude-desktop   # Non-interactive (stdio transport)
+./install.sh --uninstall        # Remove config + optionally stop services
+```
 
-### Claude Desktop (stdio — recommended)
+The stack starts in ~15 seconds. PostgreSQL seeds a sample "ContentForge" project on first boot.
 
-1. Install Python dependencies locally:
+After install, restart your Claude client. Web UI: http://localhost:8088
+
+## MCP Configuration (Manual)
+
+If you prefer to configure manually instead of using `install.sh`:
+
+<details>
+<summary>Claude Code (HTTP — recommended with Docker)</summary>
+
+Add to `~/.claude/mcp.json` (or `.claude/mcp.json` in project):
+```json
+{
+  "mcpServers": {
+    "prd-forge": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp/"
+    }
+  }
+}
+```
+
+Start services: `docker compose up -d`
+</details>
+
+<details>
+<summary>Claude Desktop (stdio)</summary>
+
+1. Install Python dependencies:
    ```bash
    cd PRDforge/mcp_server
    python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
    ```
 
-2. Open Claude Desktop → **Settings → Developer → Edit Config** and add:
+2. Open Claude Desktop → **Settings → Developer → Edit Config**:
    ```json
    {
      "mcpServers": {
@@ -66,46 +94,15 @@ The stack starts in ~15 seconds. PostgreSQL runs schema migration and seeds a sa
    }
    ```
 
-3. Restart Claude Desktop (Cmd+Q, reopen). Look for the hammer icon in the chat input.
+3. Start postgres: `docker compose up -d postgres`
+4. Restart Claude Desktop (Cmd+Q, reopen)
 
-> **Note:** Claude Desktop does not support `streamable-http` transport. Use stdio (spawns server as subprocess). Postgres must be running (`docker compose up -d postgres`).
+> **Note:** Claude Desktop does not support HTTP transport. Use stdio (spawns server as subprocess).
+</details>
 
-### Claude Code (HTTP — recommended with Docker)
+<details>
+<summary>HTTP transport (claude.ai or other MCP clients)</summary>
 
-Add to `~/.claude.json` (global) or `.claude/mcp.json` (project):
-```json
-{
-  "mcpServers": {
-    "prd-forge": {
-      "type": "http",
-      "url": "http://localhost:8080/mcp/"
-    }
-  }
-}
-```
-
-> **Note:** Requires the full stack running (`docker compose up -d`). The MCP server exposes HTTP transport on port 8080.
-
-### Claude Code (stdio — without Docker)
-
-If running the MCP server as a local Python process (no Docker):
-```json
-{
-  "mcpServers": {
-    "prd-forge": {
-      "command": "/absolute/path/to/PRDforge/mcp_server/.venv/bin/python",
-      "args": ["/absolute/path/to/PRDforge/mcp_server/server.py"],
-      "env": {
-        "DATABASE_URL": "postgresql://prdforge:prdforge@localhost:5432/prdforge"
-      }
-    }
-  }
-}
-```
-
-### HTTP transport (claude.ai or other MCP clients)
-
-For clients that support streamable-http transport:
 ```json
 {
   "mcpServers": {
@@ -116,6 +113,7 @@ For clients that support streamable-http transport:
   }
 }
 ```
+</details>
 
 ## Tool Reference
 
@@ -142,6 +140,7 @@ For clients that support streamable-http transport:
 | `prd_export_markdown` | Export | Full document as markdown | 15000+ |
 | `prd_import_markdown` | Import | Import from markdown (splits on ##) | — |
 | `prd_bulk_status` | Batch | Update status for multiple sections | — |
+| `prd_list_comments` | Comments | List all comments across project with section pointers | 100-500 |
 | `prd_add_comment` | Comments | Add inline comment anchored to selected text | — |
 | `prd_resolve_comment` | Comments | Resolve/reopen a comment after implementing changes | — |
 | `prd_delete_comment` | Comments | Delete a comment | — |
@@ -155,10 +154,11 @@ Google Docs-style comments anchored to specific text in any section:
 
 1. **In the UI** — select text in a section → click "+ Comment" → write your note → Save
 2. **Via MCP** — `prd_add_comment(project, section, anchor_text, body)` with optional `anchor_prefix`/`anchor_suffix` for disambiguation
-3. **Claude reads comments** — `prd_read_section` includes all comments with their anchor text and body
-4. **Resolve after implementing** — use `prd_resolve_comment` or click "Resolve" in the UI
+3. **Claude scans comments** — `prd_list_comments` returns all open comments with section pointers (~100 tokens), then read only the sections that have feedback
+4. **Claude reads comments** — `prd_read_section` includes all comments with their anchor text and body
+5. **Resolve after implementing** — use `prd_resolve_comment` or click "Resolve" in the UI
 
-Workflow: leave comments like "Add rate limiting details" on specific text → tell Claude to read the section → Claude sees the comment and implements the change → resolve the comment.
+Workflow: leave comments → ask Claude to check feedback → Claude calls `prd_list_comments` to see which sections have comments → reads only those sections → implements changes → resolves comments.
 
 ## Data Model
 
