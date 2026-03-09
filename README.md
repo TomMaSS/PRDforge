@@ -187,8 +187,8 @@ Workflow: leave comments → ask Claude to check feedback → Claude calls `prd_
 erDiagram
     projects ||--o{ sections : has
     sections ||--o{ section_revisions : tracks
-    sections ||--o{ section_dependencies : from
-    sections ||--o{ section_dependencies : to
+    sections ||--o{ section_dependencies : "from"
+    sections ||--o{ section_dependencies : "to"
     sections ||--o{ section_comments : has
     section_comments ||--o{ comment_replies : has
     projects ||--o| project_settings : has
