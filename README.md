@@ -1,14 +1,33 @@
 # PRD Forge
 
-Sectional PRD management system that reduces AI context cost from ~15K to ~500-2000 tokens per edit. Store documents in PostgreSQL, expose section-level read/write via MCP, and browse via a read-only web UI.
+**Stop feeding your entire spec to Claude every time you change one paragraph.**
 
-## How It Works
+PRD Forge splits your product requirements into independently addressable sections stored in PostgreSQL, then gives Claude surgical read/write access through 28 MCP tools. The result: edits that used to burn ~15,000 tokens now cost 500-2,000 — an **85-95% reduction** in context per operation.
 
-Traditional approach: every edit loads the full 15K-token document into context.
+## The Problem
 
-PRD Forge approach: each section has a `content` field (full body, loaded when editing) and a `summary` field (1-3 sentences, loaded as context for dependent sections). When Claude reads a section, it receives full content for that section plus only summaries of related sections.
+Every AI-assisted PRD workflow today has the same bottleneck: Claude needs the full document loaded into context to make a single edit. A 20-page spec means ~15K tokens of context consumed on every interaction — even if you're only changing one section. That context cost adds up fast, limits how much Claude can reason about, and makes large specs unwieldy.
 
-**Example:** Reading `data-model` (820 words, ~1200 tokens) also loads summaries of `tech-stack` (~60 tokens) and `pipeline` (~60 tokens) — total ~1320 tokens instead of ~15,000.
+## How PRD Forge Solves It
+
+Each section stores both its full **content** and a short **summary** (1-3 sentences). When Claude reads a section, it gets:
+
+- Full content for the target section
+- Only summaries of related (dependent) sections
+- Inline comments and revision history
+
+**Real example:** Reading `data-model` (820 words, ~1,200 tokens) loads summaries of `tech-stack` (~60 tokens) and `pipeline` (~60 tokens). Total: **~1,320 tokens** instead of ~15,000.
+
+Claude always has enough context to make informed edits without paying for the entire document.
+
+## What You Get
+
+- **28 MCP tools** — read, write, search, import/export, manage dependencies, track revisions, resolve comments. Claude operates on your spec like a database, not a blob of text.
+- **Dependency-aware context** — sections know what they depend on. When Claude reads one, it automatically gets summaries of upstream sections for context.
+- **Full revision history** — every content change creates a revision. Roll back any section to any point. No content is ever lost.
+- **Google Docs-style comments** — leave inline comments anchored to specific text, Claude reads them, implements changes, resolves them. Threaded replies included.
+- **Web UI** — browse your specs, leave comments, view the dependency graph, toggle dark/light theme. No editing through the UI — that's Claude's job.
+- **One command to install** — `./install.sh` handles Docker, MCP config, and validation in ~15 seconds.
 
 ## Architecture
 
@@ -20,10 +39,10 @@ graph LR
     A -.->|reads comments| D
 ```
 
-Three services:
+Three Docker services, all localhost-only:
 - **PostgreSQL 16** — source of truth (7 tables, 2 views)
 - **MCP Server** — 28 tools for Claude integration (stdio + HTTP transports)
-- **Web UI** — dark-theme browser interface with inline comments, vertical nav rail, and project settings
+- **Web UI** — browser interface with inline comments, dependency graph, dark/light theme
 
 ## Quick Start
 
@@ -33,14 +52,16 @@ cd PRDforge
 ```
 
 This single command:
-1. Starts Docker services (PostgreSQL, MCP server, Web UI)
-2. Configures your Claude client (Code or Desktop)
-3. Validates everything works
+1. Pulls pre-built images from ghcr.io (or builds locally if unavailable)
+2. Starts Docker services (PostgreSQL, MCP server, Web UI)
+3. Configures your Claude client (Code or Desktop)
+4. Validates everything works
 
 ```bash
 # Options
 ./install.sh --claude-code      # Non-interactive (HTTP transport)
 ./install.sh --claude-desktop   # Non-interactive (stdio transport)
+./install.sh --build            # Force local build instead of pulling images
 ./install.sh --uninstall        # Remove config + optionally stop services
 ```
 
@@ -356,19 +377,18 @@ docker compose up -d
 - Markdown import parser splits on `## ` headings only (heuristic, handles code fences)
 - No latency/error-rate metrics (structured logging + `/health` endpoint only)
 - No reverse proxy hardening — localhost-only binding prevents accidental exposure
-- Container images pinned by tag, not digest
-- Google Fonts CDN for Inter/JetBrains Mono — offline falls back to system fonts
 
 ## Development
 
 ```bash
-# Run tests (requires postgres running)
+# Run unit tests (requires postgres running)
 docker compose up -d postgres
 pip install -r tests/requirements.txt
 pytest tests/test_mcp_tools.py tests/test_ui_api.py -v
 
-# Smoke tests (full stack)
-docker compose down -v && docker compose up -d
+# Smoke tests (requires full stack)
+docker compose up -d
+pip install httpx pytest
 pytest tests/test_smoke.py -v
 ```
 
@@ -376,8 +396,10 @@ pytest tests/test_smoke.py -v
 ```
 PRDforge/
 ├── docker-compose.yml
+├── docker-compose.prod.yml
 ├── .env.example
 ├── .gitignore
+├── .github/workflows/build-and-push.yml
 ├── claude_mcp_config.json
 ├── README.md
 ├── AGENTS.md
@@ -402,12 +424,17 @@ PRDforge/
 │       ├── marked.min.js
 │       ├── highlight.min.js
 │       ├── github-dark.min.css
+│       ├── fonts.css
+│       ├── fonts/
+│       │   ├── inter-*.woff2
+│       │   └── jetbrains-mono-*.woff2
 │       └── MARKED_VERSION
 └── tests/
     ├── requirements.txt
     ├── conftest.py
     ├── test_mcp_tools.py
-    └── test_ui_api.py
+    ├── test_ui_api.py
+    └── test_smoke.py
 ```
 
 ## License

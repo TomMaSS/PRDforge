@@ -2,16 +2,9 @@
 
 ## High Priority
 
-- [ ] Run full test suite against live DB and fix any failures
-- [ ] Test concurrent revision writes under load (SELECT FOR UPDATE correctness)
-- [ ] Verify MCP transport path (`/mcp/` vs `/`) against FastMCP version — smoke test needed
-
 ## Medium Priority
 
-- [ ] Add `test_smoke.py` — CI contract tests (MCP liveness, DB readiness, UI endpoints, seed data validation)
-- [ ] Pin container images by digest instead of tag for reproducibility
-- [ ] Vendor Google Fonts (Inter, JetBrains Mono) locally for offline use
-- [ ] Add light theme / dark-light toggle in UI
+(none)
 
 ## Low Priority
 
@@ -43,3 +36,11 @@
 - [x] `prd_list_comments` tool for context-efficient comment scanning
 - [x] Editable comments (PATCH endpoint + inline edit UI)
 - [x] Graph node popups with section summary, click-to-open
+- [x] Full test suite fixed (70 unit tests + 9 smoke tests passing)
+- [x] Concurrent revision writes verified (SELECT FOR UPDATE correctness)
+- [x] MCP transport path verified (`/mcp/` streamable-http working)
+- [x] `test_smoke.py` — CI contract tests (MCP liveness, DB readiness, UI endpoints, seed data)
+- [x] Container images pinned by digest (postgres:16-alpine, python:3.11-slim)
+- [x] Google Fonts vendored locally (Inter, JetBrains Mono in ui/static/fonts/)
+- [x] Light theme / dark-light toggle in UI nav rail
+- [x] Docker build pipeline (GitHub Actions → ghcr.io) + `docker-compose.prod.yml` + install.sh pull support

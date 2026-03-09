@@ -47,7 +47,7 @@ class TestSectionCRUD:
         import server
         result = json.loads(await server.prd_list_sections(project="contentforge"))
         assert isinstance(result, list)
-        assert len(result) == 13
+        assert len(result) == 12
 
     async def test_read_section_with_deps(self, mcp_pool):
         import server
@@ -119,14 +119,14 @@ class TestSectionCRUD:
     async def test_update_section_invalid_status(self, mcp_pool):
         import server
         result = json.loads(await server.prd_update_section(
-            project="contentforge", section="overview", status="invalid"
+            project="contentforge", section="vision-and-overview", status="invalid"
         ))
         assert "error" in result
 
     async def test_update_section_empty(self, mcp_pool):
         import server
         result = json.loads(await server.prd_update_section(
-            project="contentforge", section="overview"
+            project="contentforge", section="vision-and-overview"
         ))
         assert "error" in result
         assert "nothing to update" in result["error"]
@@ -201,7 +201,7 @@ class TestDependencies:
     async def test_self_dependency_rejected(self, mcp_pool):
         import server
         result = json.loads(await server.prd_add_dependency(
-            project="contentforge", section="overview", depends_on="overview"
+            project="contentforge", section="vision-and-overview", depends_on="vision-and-overview"
         ))
         assert "error" in result
 
@@ -214,7 +214,7 @@ class TestDependencies:
         )
         # Try to create dep between contentforge section and other-proj section
         result = json.loads(await server.prd_add_dependency(
-            project="contentforge", section="overview", depends_on="foreign"
+            project="contentforge", section="vision-and-overview", depends_on="foreign"
         ))
         assert "error" in result
 
@@ -225,7 +225,7 @@ class TestContextSearch:
         result = json.loads(await server.prd_get_overview(project="contentforge"))
         assert "project" in result
         assert "stats" in result
-        assert result["stats"]["sections"] == 13
+        assert result["stats"]["sections"] == 12
         assert "sections" in result
         assert "dependencies" in result
 
@@ -240,10 +240,10 @@ class TestContextSearch:
     async def test_tag_search(self, mcp_pool):
         import server
         result = json.loads(await server.prd_search(
-            project="contentforge", query="tag:mvp"
+            project="contentforge", query="tag:backend"
         ))
         assert "tag" in result
-        assert result["tag"] == "mvp"
+        assert result["tag"] == "backend"
         assert len(result["results"]) > 0
 
     async def test_changelog(self, mcp_pool):
@@ -257,9 +257,9 @@ class TestRevisions:
     async def test_get_revisions_empty(self, mcp_pool):
         import server
         result = json.loads(await server.prd_get_revisions(
-            project="contentforge", section="overview"
+            project="contentforge", section="vision-and-overview"
         ))
-        assert result["section"] == "overview"
+        assert result["section"] == "vision-and-overview"
         assert isinstance(result["revisions"], list)
 
     async def test_read_revision(self, mcp_pool):
@@ -361,7 +361,7 @@ class TestExportImport:
         import server
         result = await server.prd_export_markdown(project="contentforge")
         assert "# ContentForge" in result
-        assert "## Overview" in result
+        assert "## Vision" in result
 
     async def test_import_new(self, mcp_pool):
         import server

@@ -36,11 +36,14 @@ Three Docker Compose services:
 | `db/03_comments.sql` | Inline comments table (section_comments) | 20 |
 | `db/04_replies_and_settings.sql` | Comment replies + project settings tables | 40 |
 | `shared/settings.py` | Settings schema, defaults, validation (shared) | 25 |
-| `mcp_server/server.py` | MCP server with 27 tools | 850 |
-| `ui/app.py` | FastAPI web UI with nav rail, replies, settings | 750 |
-| `tests/conftest.py` | Test fixtures (db pool, cleanup, monkeypatch) | 50 |
-| `tests/test_mcp_tools.py` | MCP tool tests (40+ tests) | 550 |
-| `tests/test_ui_api.py` | UI endpoint tests (20+ tests) | 250 |
+| `mcp_server/server.py` | MCP server with 28 tools | 1290 |
+| `ui/app.py` | FastAPI web UI with nav rail, replies, settings, light/dark theme | 1315 |
+| `ui/static/fonts.css` | Vendored Google Fonts (@font-face declarations) | 200+ |
+| `ui/static/fonts/` | Vendored woff2 font files (Inter + JetBrains Mono) | — |
+| `tests/conftest.py` | Test fixtures (db pool, cleanup, monkeypatch) | 55 |
+| `tests/test_mcp_tools.py` | MCP tool tests (42 tests) | 577 |
+| `tests/test_ui_api.py` | UI endpoint tests (28 tests) | 264 |
+| `tests/test_smoke.py` | CI smoke tests (MCP, DB, UI, seed data) | 85 |
 
 ## MCP Tool Groups
 
@@ -142,8 +145,6 @@ python -m venv .venv && .venv/bin/pip install -r tests/requirements.txt
 1. **Markdown import parser is heuristic** — fence-state tracking handles common code blocks but won't handle malformed or exotic markdown constructs
 2. **No latency/error-rate metrics** — structured logging and `/health` provide basic operability
 3. **No reverse proxy hardening** — localhost-only binding prevents accidental LAN exposure
-4. **Container image tags** — pinned by tag (`postgres:16-alpine`, `python:3.11-slim`), not by digest
-5. **Google Fonts CDN** — offline environments fall back to system fonts
 
 ## Testing
 

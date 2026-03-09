@@ -49,11 +49,10 @@ HTML = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PRD Forge</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/fonts.css">
 <script src="/static/marked.min.js"></script>
 <script src="/static/highlight.min.js"></script>
-<link rel="stylesheet" href="/static/github-dark.min.css">
+<link rel="stylesheet" href="/static/github-dark.min.css" id="hljs-theme">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -62,6 +61,13 @@ HTML = r"""<!DOCTYPE html>
   --accent:#6366f1;
   --approved:#10b981;--review:#f59e0b;--in_progress:#3b82f6;--draft:#7a7c94;--outdated:#ef4444;
   --notes-accent:#f59e0b;
+}
+[data-theme="light"]{
+  --bg:#f5f5f7;--surface:#ffffff;--secondary:#e8e8ed;--border:#d1d1d6;--border-muted:#c7c7cc;
+  --text:#1d1d1f;--text-sec:#636366;--text-muted:#8e8e93;
+  --accent:#4f46e5;
+  --approved:#059669;--review:#d97706;--in_progress:#2563eb;--draft:#8e8e93;--outdated:#dc2626;
+  --notes-accent:#d97706;
 }
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);display:flex;height:100vh;overflow:hidden}
 code,pre{font-family:'JetBrains Mono',monospace}
@@ -118,7 +124,7 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 .main{flex:1;overflow-y:auto;padding:40px 56px;display:flex;justify-content:center;position:relative}
 .main.graph-mode{padding:0;overflow:hidden}
 .content-wrap{max-width:780px;width:100%}
-.section-title{font-size:26px;font-weight:700;margin-bottom:8px;color:#f0f1f5}
+.section-title{font-size:26px;font-weight:700;margin-bottom:8px;color:var(--text)}
 .meta-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;font-size:13px;color:var(--text-sec)}
 .meta-row .badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;color:#fff}
 .summary-box{padding:16px 20px;border:1px solid var(--border);border-radius:8px;margin-bottom:20px;font-size:15px;line-height:1.75;color:var(--text-sec);background:var(--surface)}
@@ -140,22 +146,26 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 
 /* Prose */
 .prose{line-height:1.85;font-size:16px;color:var(--text)}
-.prose h1,.prose h2,.prose h3{font-weight:600;color:#f0f1f5}
+.prose h1,.prose h2,.prose h3{font-weight:600;color:var(--text)}
 .prose h1{font-size:22px;margin:32px 0 12px}.prose h2{font-size:19px;margin:28px 0 10px}.prose h3{font-size:17px;margin:24px 0 8px}
 .prose p{margin:12px 0}
 .prose ul,.prose ol{margin:8px 0 20px 20px;color:var(--text-sec)}
 .prose li{margin:8px 0;color:var(--text)}
 .prose li::marker{color:var(--text-muted)}
 .prose ul+p>strong:first-child,.prose ol+p>strong:first-child{display:inline-block;margin-top:8px}
-.prose p>strong:only-child{display:block;margin-top:20px;font-size:17px;color:#f0f1f5}
+.prose p>strong:only-child{display:block;margin-top:20px;font-size:17px;color:var(--text)}
 .prose code{background:var(--secondary);padding:2px 6px;border-radius:4px;font-size:13px}
-.prose pre{background:#252730;border:1px solid #44465a;border-radius:8px;padding:16px 20px;overflow-x:auto;margin:20px 0}
+.prose pre{background:var(--code-bg,#252730);border:1px solid var(--border);border-radius:8px;padding:16px 20px;overflow-x:auto;margin:20px 0}
 .prose pre code{background:none;padding:0;font-family:'JetBrains Mono',monospace;font-size:13px}
+[data-theme="light"]{--code-bg:#f6f8fa}
+[data-theme="light"] .hljs{background:#f6f8fa !important;color:#24292e}
+[data-theme="light"] .graph-popup{box-shadow:0 8px 30px rgba(0,0,0,.15)}
+[data-theme="light"] select,[data-theme="light"] input,[data-theme="light"] textarea{color:var(--text);background:var(--surface);border-color:var(--border)}
 .prose table{width:100%;border-collapse:collapse;margin:16px 0}
 .prose th,.prose td{padding:8px 12px;border:1px solid var(--border);text-align:left;font-size:13px}
 .prose th{background:var(--surface);font-weight:600}
 .prose blockquote{border-left:3px solid var(--accent);padding-left:12px;margin:16px 0;color:var(--text-sec)}
-.prose strong{font-weight:600;color:#e8e9ed}
+.prose strong{font-weight:600;color:var(--text)}
 .prose a{color:var(--accent)}
 .prose hr{border:none;border-top:1px solid var(--border);margin:24px 0}
 
@@ -284,6 +294,10 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
     </div>
   </div>
   <div class="nav-bottom">
+    <div class="nav-icon" onclick="toggleTheme()" id="themeBtn" title="Toggle theme">
+      <svg id="themeIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+      <span class="nav-label" id="themeLabel">Light</span>
+    </div>
     <div class="nav-icon" data-tab="settings" onclick="switchTab('settings')" title="Settings">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
       <span class="nav-label">Settings</span>
@@ -342,6 +356,27 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 </div>
 
 <script>
+// Theme
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  const icon=document.getElementById('themeIcon');
+  const label=document.getElementById('themeLabel');
+  if(t==='light'){
+    icon.innerHTML='<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>';
+    label.textContent='Dark';
+  }else{
+    icon.innerHTML='<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>';
+    label.textContent='Light';
+  }
+}
+function toggleTheme(){
+  const cur=document.documentElement.getAttribute('data-theme')||'dark';
+  const next=cur==='dark'?'light':'dark';
+  localStorage.setItem('prdforge-theme',next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('prdforge-theme')||'dark');
+
 const renderer=new marked.Renderer();
 renderer.code=function({text,lang}){const hl=lang&&hljs.getLanguage(lang)?hljs.highlight(text,{language:lang}).value:hljs.highlightAuto(text).value;return `<pre><code class="hljs language-${lang||''}">${hl}</code></pre>`;};
 marked.setOptions({renderer});
@@ -515,8 +550,9 @@ function showMainGraph(){
       const isConn=hovered&&hovered!==n&&edges.some(e=>(e.from===hovered.slug&&e.to===n.slug)||(e.to===hovered.slug&&e.from===n.slug));
       ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);
       ctx.fillStyle=NODE_COLORS[n.status]||'#9496ad';ctx.globalAlpha=isHov||isDrag||isConn?1:hovered?0.4:0.85;ctx.fill();ctx.globalAlpha=1;
-      if(isHov||isDrag){ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke()}
-      else if(isConn){ctx.strokeStyle='rgba(255,255,255,0.4)';ctx.lineWidth=1.5;ctx.stroke()}
+      const isLight=document.documentElement.getAttribute('data-theme')==='light';
+      if(isHov||isDrag){ctx.strokeStyle=isLight?'#1d1d1f':'#fff';ctx.lineWidth=2.5;ctx.stroke()}
+      else if(isConn){ctx.strokeStyle=isLight?'rgba(0,0,0,0.3)':'rgba(255,255,255,0.4)';ctx.lineWidth=1.5;ctx.stroke()}
       ctx.fillStyle='#fff';const fs=isHov?11:10;ctx.font=`${isHov?'600':'500'} ${fs}px Inter,sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';
       ctx.globalAlpha=isHov||isDrag||isConn?1:hovered?0.4:1;
       wrapTextInCircle(ctx,n.title,n.x,n.y,r-6,fs);ctx.globalAlpha=1;

@@ -24,18 +24,27 @@ die()   { err "$1"; exit 1; }
 CLAUDE_CODE_CONFIG="$HOME/.claude/mcp.json"
 CLAUDE_DESKTOP_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 MCP_SERVER_NAME="prd-forge"
+GHCR_PREFIX="ghcr.io/tommass/prdforge"
 
 # ─── Argument parsing ────────────────────────────────────────────────
 MODE=""
 FORCE=false
+BUILD_LOCAL=false
 for arg in "$@"; do
   case "$arg" in
     --claude-code)    MODE="code" ;;
     --claude-desktop) MODE="desktop" ;;
     --uninstall)      MODE="uninstall" ;;
     --force)          FORCE=true ;;
+    --build)          BUILD_LOCAL=true ;;
     -h|--help)
-      echo "Usage: ./install.sh [--claude-code|--claude-desktop|--uninstall] [--force]"
+      echo "Usage: ./install.sh [--claude-code|--claude-desktop|--uninstall] [--force] [--build]"
+      echo ""
+      echo "  --claude-code     Configure for Claude Code (HTTP transport)"
+      echo "  --claude-desktop  Configure for Claude Desktop (stdio transport)"
+      echo "  --uninstall       Remove MCP config + optionally stop services"
+      echo "  --force           Overwrite existing config without asking"
+      echo "  --build           Build images locally instead of pulling from ghcr.io"
       exit 0 ;;
     *) die "Unknown option: $arg" ;;
   esac
@@ -155,14 +164,32 @@ fi
 
 # ─── Start Docker services ──────────────────────────────────────────
 echo ""
-info "Starting Docker services..."
-docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d --build 2>&1 | tail -5
+
+COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+
+if [ "$BUILD_LOCAL" = true ]; then
+  info "Building and starting Docker services locally..."
+  docker compose -f "$COMPOSE_FILE" up -d --build 2>&1 | tail -5
+else
+  # Try pre-built images from ghcr.io, fall back to local build
+  PROD_COMPOSE="$SCRIPT_DIR/docker-compose.prod.yml"
+  if docker pull "$GHCR_PREFIX-mcp-server:latest" >/dev/null 2>&1 && \
+     docker pull "$GHCR_PREFIX-ui:latest" >/dev/null 2>&1; then
+    ok "Pulled pre-built images from ghcr.io"
+    COMPOSE_FILE="$PROD_COMPOSE"
+    info "Starting Docker services (pre-built)..."
+    docker compose -f "$COMPOSE_FILE" up -d 2>&1 | tail -5
+  else
+    warn "Pre-built images not available, building locally..."
+    docker compose -f "$COMPOSE_FILE" up -d --build 2>&1 | tail -5
+  fi
+fi
 
 info "Waiting for services to be healthy..."
 attempts=0
 max_attempts=30
 while [ $attempts -lt $max_attempts ]; do
-  if docker compose -f "$SCRIPT_DIR/docker-compose.yml" ps --format json 2>/dev/null | python3 -c "
+  if docker compose -f "$COMPOSE_FILE" ps --format json 2>/dev/null | python3 -c "
 import sys, json
 lines = sys.stdin.read().strip().split('\n')
 services = [json.loads(l) for l in lines if l.strip()]

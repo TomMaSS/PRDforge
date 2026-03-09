@@ -1,3 +1,6 @@
+## PRDforge — production compose (uses pre-built images from ghcr.io)
+## Usage: docker compose -f docker-compose.prod.yml up -d
+
 services:
   postgres:
     image: postgres:16-alpine@sha256:97ff59a4e30e08d1c11bdcd9455e7832368c0572b576c9092cde2df4ae5552a3
@@ -21,9 +24,7 @@ services:
     restart: unless-stopped
 
   mcp-server:
-    build:
-      context: .
-      dockerfile: mcp_server/Dockerfile
+    image: ghcr.io/tommass/prdforge-mcp-server:${PRDFORGE_VERSION:-latest}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-prdforge}:${POSTGRES_PASSWORD:-prdforge}@postgres:5432/${POSTGRES_DB:-prdforge}
     ports:
@@ -41,9 +42,7 @@ services:
     restart: unless-stopped
 
   ui:
-    build:
-      context: .
-      dockerfile: ui/Dockerfile
+    image: ghcr.io/tommass/prdforge-ui:${PRDFORGE_VERSION:-latest}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-prdforge}:${POSTGRES_PASSWORD:-prdforge}@postgres:5432/${POSTGRES_DB:-prdforge}
     ports:
