@@ -8,7 +8,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/prdforge
 
 permissions:
   contents: read
@@ -36,16 +35,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from tag
+      - name: Extract version and image prefix
         id: meta
         run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          PREFIX="ghcr.io/${OWNER}/prdforge"
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION="${{ github.ref_name }}"
           else
             VERSION="dev-$(echo ${{ github.sha }} | cut -c1-7)"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Building ${{ matrix.image }} version: $VERSION"
+          echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+          echo "Building ${{ matrix.image }} version: $VERSION (prefix: $PREFIX)"
 
       - uses: docker/build-push-action@v5
         with:
@@ -53,8 +55,8 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}:${{ steps.meta.outputs.version }}
-            ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}:latest
+            ${{ steps.meta.outputs.prefix }}-${{ matrix.image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.prefix }}-${{ matrix.image }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
