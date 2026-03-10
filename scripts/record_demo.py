@@ -48,11 +48,11 @@ def main():
         page.wait_for_timeout(2500)
 
         # ── Scene 2: Browse sections (5-12s) ─────────────────────
-        page.click(".section-item >> text=Overview")
+        page.locator(".section-item").filter(has_text="Overview").first.click()
         page.wait_for_selector(".section-title", timeout=5000)
         page.wait_for_timeout(2500)
 
-        page.click(".section-item >> text=Data Model")
+        page.locator(".section-item").filter(has_text="Data Model").click()
         page.wait_for_selector(".section-title", timeout=5000)
         page.wait_for_timeout(2500)
 
@@ -67,11 +67,11 @@ def main():
         page.wait_for_timeout(1500)
 
         # ── Scene 4: Dependency graph (16-23s) ───────────────────
-        page.click('.nav-icon[data-tab="deps"]')
+        page.locator('.nav-icon[data-tab="deps"]').click()
         page.wait_for_timeout(4000)  # let force-directed graph settle
         # hover near center to trigger node highlight
-        canvas = page.query_selector("canvas")
-        if canvas:
+        canvas = page.locator("canvas")
+        if canvas.count():
             box = canvas.bounding_box()
             if box:
                 page.mouse.move(
@@ -81,24 +81,24 @@ def main():
         page.wait_for_timeout(2000)
 
         # ── Scene 5: Add a comment (23-30s) ──────────────────────
-        page.click('.nav-icon[data-tab="sections"]')
+        page.locator('.nav-icon[data-tab="sections"]').click()
         page.wait_for_timeout(500)
-        page.click(".section-item >> text=API Specification")
+        page.locator(".section-item").filter(has_text="API Specification").click()
         page.wait_for_selector(".section-title", timeout=5000)
         page.wait_for_timeout(1500)
 
         # Create comment via API (more reliable than simulating text selection)
-        page.evaluate("""
-            fetch('/api/projects/contentforge/sections/api-spec/comments', {
+        comment_resp = page.evaluate("""
+            fetch('/api/projects/snaphabit/sections/api-spec/comments', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    anchor_text: 'Authentication via Bearer token (JWT)',
-                    anchor_prefix: 'All endpoints return JSON. ',
-                    anchor_suffix: '.',
-                    body: 'Should we add rate limiting to these endpoints?'
+                    anchor_text: 'Rate limiting',
+                    anchor_prefix: '**',
+                    anchor_suffix: ':** 100 req/min',
+                    body: 'Should we add per-endpoint rate limits?'
                 })
-            })
+            }).then(r => r.json())
         """)
         page.wait_for_timeout(800)
         # Reload section to show highlight + comment card
@@ -106,13 +106,22 @@ def main():
         page.wait_for_timeout(3000)
 
         # ── Scene 6: Theme toggle (30-34s) ───────────────────────
-        page.click("#themeBtn")
+        page.locator("#themeBtn").click()
         page.wait_for_timeout(2000)
-        page.click("#themeBtn")
+        page.locator("#themeBtn").click()
         page.wait_for_timeout(1500)
 
         # ── Scene 7: Final hold (34-36s) ─────────────────────────
         page.wait_for_timeout(1500)
+
+        # ── Cleanup: delete the demo comment ─────────────────────
+        if comment_resp and isinstance(comment_resp, dict) and "id" in comment_resp:
+            cid = comment_resp["id"]
+            page.evaluate(f"""
+                fetch('/api/projects/snaphabit/sections/api-spec/comments/{cid}', {{
+                    method: 'DELETE'
+                }})
+            """)
 
         # Finalize video
         video_path = page.video.path()
