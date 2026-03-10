@@ -6,6 +6,8 @@
 - [ ] Token savings dashboard in Web UI — chart showing cumulative tokens saved over time, savings per section read, comparison bar ("full doc: 15,000 tokens vs loaded: 1,320 tokens"). Proof-of-value screen users will screenshot and share
 - [ ] `prd_import_url` tool — fetch a Google Doc, Notion page, or raw URL and import as sections. Support public Google Docs and raw GitHub markdown files to reduce onboarding friction
 - [ ] Section templates — offer project templates beyond blank/SnapHabit: "SaaS MVP", "API Design", "Mobile App", "Infrastructure Migration". Each is a seed SQL or importable markdown showcasing different dependency patterns
+- [ ] move to github projects
+- [ ] add playwrite preview autoupdate (ci for pr + agents.md for agents instaction which sections observe)
 
 ## Medium Impact, Lower Effort – Quick Wins
 
@@ -14,6 +16,7 @@
 - [ ] GitHub repo metadata — description, topics/tags (`mcp`, `claude`, `prd`, `product-requirements`, `ai-tools`, `developer-tools`, `mcp-server`), website URL
 - [ ] Multi-arch Docker builds — add `linux/amd64,linux/arm64` to GH Actions build for Apple Silicon support
 - [ ] `prd_diff_sections` tool — unified diff between two revisions of a section, avoids loading both and diffing manually
+- [ ] ui playwrite tests 
 
 ## Medium Impact, Higher Effort – Plan For These
 
