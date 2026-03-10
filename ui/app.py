@@ -359,6 +359,57 @@ async def list_project_comments(slug: str):
     return [row_dict(r) for r in rows]
 
 
+@app.get("/api/projects/{slug}/token-stats")
+async def get_token_stats(slug: str):
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    pid = proj["id"]
+
+    totals = await pool.fetchrow("""
+        SELECT COUNT(*) AS operations,
+               COALESCE(SUM(full_doc_tokens), 0) AS total_full,
+               COALESCE(SUM(loaded_tokens), 0) AS total_loaded
+        FROM token_estimates WHERE project_id = $1
+    """, pid)
+
+    by_op = await pool.fetch("""
+        SELECT operation,
+               COUNT(*) AS count,
+               SUM(full_doc_tokens) AS full_tokens,
+               SUM(loaded_tokens) AS loaded_tokens
+        FROM token_estimates WHERE project_id = $1
+        GROUP BY operation ORDER BY count DESC
+    """, pid)
+
+    daily = await pool.fetch("""
+        SELECT d.day::date AS day,
+               COALESCE(COUNT(t.id), 0) AS operations,
+               COALESCE(SUM(t.full_doc_tokens - t.loaded_tokens), 0) AS tokens_saved
+        FROM generate_series(current_date - 6, current_date, '1 day') AS d(day)
+        LEFT JOIN (
+            SELECT * FROM token_estimates WHERE project_id = $1
+        ) t ON t.created_at::date = d.day
+        GROUP BY d.day ORDER BY d.day ASC
+    """, pid)
+
+    total_full = totals["total_full"]
+    total_loaded = totals["total_loaded"]
+    saved = total_full - total_loaded
+    pct = round(saved / total_full * 100, 1) if total_full > 0 else 0
+
+    return {
+        "operations": totals["operations"],
+        "total_full_doc_tokens": total_full,
+        "total_loaded_tokens": total_loaded,
+        "total_saved_tokens": saved,
+        "savings_percent": pct,
+        "by_operation": [row_dict(r) for r in by_op],
+        "daily_trend": [{"day": str(r["day"]), "operations": r["operations"],
+                         "tokens_saved": r["tokens_saved"]} for r in daily],
+    }
+
+
 @app.get("/api/projects/{slug}/export")
 async def export_project(slug: str):
     proj = await pool.fetchrow("SELECT * FROM projects WHERE slug = $1", slug)

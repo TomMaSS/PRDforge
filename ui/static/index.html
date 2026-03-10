@@ -223,6 +223,32 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 /* Empty state */
 .empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:16px}
 
+/* Stats dashboard */
+.stats-dashboard{max-width:1000px;width:100%;margin:0 auto;padding:0}
+.stats-hero{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px 24px}
+.stat-card .stat-value{font-size:28px;font-weight:700;color:var(--text);margin-bottom:4px}
+.stat-card .stat-label{font-size:13px;color:var(--text-sec)}
+.stat-card.accent{background:rgba(16,185,129,0.08);border-color:rgba(16,185,129,0.25)}
+.stat-card.accent .stat-value,.stat-card.accent .stat-label{color:var(--approved)}
+.comparison-section{margin-bottom:24px}
+.comparison-section h3{font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px}
+.comp-track{width:100%;height:32px;border-radius:6px;overflow:hidden;display:flex}
+.comp-loaded{background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden}
+.comp-saved{background:var(--approved);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#fff;flex:1;white-space:nowrap;overflow:hidden}
+.stats-row{display:flex;gap:24px;min-height:0}
+.stats-row>div{flex:1;min-width:0}
+.ops-breakdown{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px}
+.ops-breakdown h3{font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px}
+.ops-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.ops-row .ops-name{width:100px;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-sec);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ops-row .ops-bar{flex:1;height:16px;background:var(--secondary);border-radius:4px;overflow:hidden}
+.ops-row .ops-bar-fill{height:100%;background:var(--accent);border-radius:4px}
+.ops-row .ops-count{font-size:11px;font-weight:500;color:var(--text);width:30px;text-align:right;flex-shrink:0}
+.trend-section{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px}
+.trend-section h3{font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px}
+.trend-canvas{width:100%;height:180px}
+
 /* Tab content */
 .tab-content{display:none;flex:1;overflow-y:auto}
 .tab-content.active{display:flex;flex-direction:column}
@@ -246,6 +272,10 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
     <div class="nav-icon" data-tab="changelog" onclick="switchTab('changelog')" title="Changelog">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
       <span class="nav-label">Changelog</span>
+    </div>
+    <div class="nav-icon" data-tab="stats" onclick="switchTab('stats')" title="Stats">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-8"/></svg>
+      <span class="nav-label">Stats</span>
     </div>
   </div>
   <div class="nav-bottom">
@@ -286,6 +316,9 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
   </div>
   <div class="tab-content" id="tab-changelog">
     <div class="changelog-list" id="changelogList"></div>
+  </div>
+  <div class="tab-content" id="tab-stats">
+    <div style="padding:16px;font-size:13px;color:var(--text-sec)">Stats load in main panel</div>
   </div>
   <div class="tab-content" id="tab-settings">
     <div class="settings-panel" id="settingsPanel">
@@ -329,6 +362,7 @@ function toggleTheme(){
   const next=cur==='dark'?'light':'dark';
   localStorage.setItem('prdforge-theme',next);
   applyTheme(next);
+  if(activeTab==='stats'&&_statsCache)renderTokenStats(_statsCache);
 }
 applyTheme(localStorage.getItem('prdforge-theme')||'dark');
 
@@ -337,6 +371,7 @@ renderer.code=function({text,lang}){const hl=lang&&hljs.getLanguage(lang)?hljs.h
 marked.setOptions({renderer});
 const STATUS_COLORS={approved:'var(--approved)',review:'var(--review)',in_progress:'var(--in_progress)',draft:'var(--draft)',outdated:'var(--outdated)'};
 let currentProject=null,projectData=null,activeSection=null,activeFilter=null;
+let activeTab='sections',mainViewMode='empty',_statsCache=null;
 
 async function init(){
   const res=await fetch('/api/projects');
@@ -347,6 +382,7 @@ async function init(){
 }
 
 async function switchProject(slug){
+  _statsCache=null;mainViewMode='empty';
   currentProject=slug;
   const res=await fetch(`/api/projects/${slug}`);
   projectData=await res.json();
@@ -362,6 +398,7 @@ async function switchProject(slug){
   activeSection=null;activeFilter=null;activeTags=[];
   clearGraph();
   document.getElementById('mainContent').innerHTML='<div class="empty">Select a section to view</div>';
+  if(activeTab==='stats')loadTokenStats();
 }
 
 let activeTags=[];
@@ -549,7 +586,7 @@ function showGraphPopup(node,e,wrap){
 
 async function loadSection(slug){
   clearGraph();
-  activeSection=slug;
+  activeSection=slug;mainViewMode='section';
   renderSections();
   const res=await fetch(`/api/projects/${currentProject}/sections/${slug}`);
   const data=await res.json();
@@ -884,7 +921,7 @@ function goToComment(sectionSlug,commentId){
 }
 
 async function loadFullPRD(){
-  activeSection=null;
+  activeSection=null;mainViewMode='fullprd';
   renderSections();
   const res=await fetch(`/api/projects/${currentProject}/export`);
   const md=await res.text();
@@ -892,14 +929,23 @@ async function loadFullPRD(){
 }
 
 function switchTab(tab){
+  const prevTab=activeTab;
   document.querySelectorAll('.nav-icon[data-tab]').forEach(n=>n.classList.toggle('active',n.dataset.tab===tab));
   document.querySelectorAll('.tab-content').forEach(tc=>tc.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
   if(document.body.classList.contains('collapsed'))document.body.classList.remove('collapsed');
   if(tab==='comments')loadGlobalComments();
   if(tab==='settings')loadSettings();
-  if(tab==='deps'){activeSection=null;renderSections();showMainGraph()}
+  if(tab==='stats')loadTokenStats();
+  if(tab==='deps'){activeSection=null;renderSections();showMainGraph();mainViewMode='graph'}
   else{clearGraph()}
+  // Restore main panel when leaving stats tab
+  if(prevTab==='stats'&&tab!=='stats'&&tab!=='deps'){
+    if(mainViewMode==='section'&&activeSection)loadSection(activeSection);
+    else if(mainViewMode==='fullprd')loadFullPRD();
+    else document.getElementById('mainContent').innerHTML='<div class="empty">Select a section to view</div>';
+  }
+  activeTab=tab;
 }
 
 function toggleSidebar(){
@@ -923,6 +969,102 @@ async function saveSetting(key,value){
   await fetch(`/api/projects/${currentProject}/settings`,{
     method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({[key]:value})
+  });
+}
+
+/* --- Token Stats --- */
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function fmt(n){if(n>=1e6)return (n/1e6).toFixed(1)+'M';if(n>=1e3)return (n/1e3).toFixed(1)+'K';return String(n)}
+
+async function loadTokenStats(){
+  if(!currentProject)return;
+  try{
+    const res=await fetch(`/api/projects/${currentProject}/token-stats`);
+    if(!res.ok){_statsCache=null;document.getElementById('mainContent').innerHTML='<div class="empty">Failed to load stats</div>';return}
+    const d=await res.json();
+    _statsCache=d;
+    renderTokenStats(d);
+  }catch(e){_statsCache=null;document.getElementById('mainContent').innerHTML='<div class="empty">Failed to load stats</div>'}
+}
+
+function renderTokenStats(d){
+  const mc=document.getElementById('mainContent');
+  if(!d||d.operations===0){
+    mc.innerHTML='<div class="empty" style="flex-direction:column;gap:8px"><span>No token data yet.</span><span style="font-size:13px">Use MCP tools to read sections and savings will appear here.</span></div>';
+    return;
+  }
+  const loadedPct=Math.max(2,Math.round(d.total_loaded_tokens/(d.total_full_doc_tokens||1)*100));
+  let opsHtml='';
+  if(d.by_operation.length){
+    const maxCount=Math.max(...d.by_operation.map(o=>o.count));
+    opsHtml=d.by_operation.map(o=>{
+      const w=Math.max(4,Math.round(o.count/maxCount*100));
+      return `<div class="ops-row"><span class="ops-name" title="${esc(o.operation)}">${esc(o.operation)}</span><div class="ops-bar"><div class="ops-bar-fill" style="width:${w}%"></div></div><span class="ops-count">${o.count}</span></div>`;
+    }).join('');
+  }
+  mc.innerHTML=`<div class="stats-dashboard">
+    <div class="stats-hero">
+      <div class="stat-card"><div class="stat-value">${fmt(d.total_saved_tokens)}</div><div class="stat-label">Tokens Saved</div></div>
+      <div class="stat-card accent"><div class="stat-value">${d.savings_percent}%</div><div class="stat-label">Savings Rate</div></div>
+      <div class="stat-card"><div class="stat-value">${d.operations}</div><div class="stat-label">Operations</div></div>
+      <div class="stat-card"><div class="stat-value">${fmt(d.total_loaded_tokens)}</div><div class="stat-label">Tokens Loaded</div></div>
+    </div>
+    <div class="comparison-section"><h3>Token Usage Comparison</h3>
+      <div class="comp-track">
+        <div class="comp-loaded" style="width:${loadedPct}%">${fmt(d.total_loaded_tokens)} loaded</div>
+        <div class="comp-saved">${fmt(d.total_saved_tokens)} saved</div>
+      </div>
+    </div>
+    <div class="stats-row">
+      <div class="ops-breakdown"><h3>By Operation</h3>${opsHtml||'<div style="color:var(--text-muted);font-size:13px">No operations</div>'}</div>
+      <div class="trend-section"><h3>7-Day Trend</h3><canvas class="trend-canvas" id="trendCanvas"></canvas></div>
+    </div>
+  </div>`;
+  if(d.daily_trend&&d.daily_trend.length)drawTrendChart(d.daily_trend);
+}
+
+function drawTrendChart(data){
+  const canvas=document.getElementById('trendCanvas');
+  if(!canvas)return;
+  const dpr=window.devicePixelRatio||1;
+  const rect=canvas.getBoundingClientRect();
+  canvas.width=rect.width*dpr;canvas.height=rect.height*dpr;
+  canvas.style.width=rect.width+'px';canvas.style.height=rect.height+'px';
+  const ctx=canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const W=rect.width,H=rect.height;
+  const cs=getComputedStyle(document.documentElement);
+  const barColor=cs.getPropertyValue('--approved').trim()||'#10b981';
+  const textColor=cs.getPropertyValue('--text-muted').trim()||'#7a7c94';
+  const borderColor=cs.getPropertyValue('--border').trim()||'#44465a';
+  const pad={top:20,right:10,bottom:30,left:45};
+  const chartW=W-pad.left-pad.right,chartH=H-pad.top-pad.bottom;
+  const maxVal=Math.max(...data.map(d=>d.tokens_saved),1);
+  // Grid lines
+  ctx.strokeStyle=borderColor;ctx.setLineDash([4,4]);ctx.lineWidth=0.5;
+  const gridLines=4;
+  for(let i=0;i<=gridLines;i++){
+    const y=pad.top+chartH*(1-i/gridLines);
+    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(W-pad.right,y);ctx.stroke();
+    ctx.fillStyle=textColor;ctx.font='10px Inter,sans-serif';ctx.textAlign='right';ctx.textBaseline='middle';
+    ctx.fillText(fmt(Math.round(maxVal*i/gridLines)),pad.left-6,y);
+  }
+  ctx.setLineDash([]);
+  // Bars
+  const barGap=8;const totalBarW=(chartW-(data.length-1)*barGap)/data.length;
+  const barW=Math.min(totalBarW,40);
+  const offsetX=(chartW-data.length*barW-(data.length-1)*barGap)/2;
+  data.forEach((d,i)=>{
+    const x=pad.left+offsetX+i*(barW+barGap);
+    const h=maxVal>0?d.tokens_saved/maxVal*chartH:0;
+    const y=pad.top+chartH-h;
+    const r=Math.min(4,barW/2);
+    ctx.fillStyle=barColor;
+    ctx.beginPath();ctx.moveTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.arcTo(x+barW,y,x+barW,y+r,r);ctx.lineTo(x+barW,pad.top+chartH);ctx.lineTo(x,pad.top+chartH);ctx.closePath();ctx.fill();
+    // X label
+    ctx.fillStyle=textColor;ctx.font='10px Inter,sans-serif';ctx.textAlign='center';ctx.textBaseline='top';
+    const label=d.day.substring(5);// MM-DD
+    ctx.fillText(label,x+barW/2,pad.top+chartH+8);
   });
 }
 
