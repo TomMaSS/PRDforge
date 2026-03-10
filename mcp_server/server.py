@@ -1,4 +1,4 @@
-"""PRD Forge MCP Server — 28 tools for sectional PRD management."""
+"""PRD Forge MCP Server — 31 tools for sectional PRD management."""
 
 import argparse
 import json
@@ -296,6 +296,14 @@ async def prd_read_section(project: str, section: str) -> str:
             cd = row_to_dict(c)
             cd["replies"] = replies_by_comment.get(str(c["id"]), [])
             comment_dicts.append(cd)
+
+        # Track token savings
+        loaded_words = (sec["word_count"] or 0) + sum(
+            len((d["summary"] or "").split()) for d in depends_on
+        ) + sum(
+            len((d["summary"] or "").split()) for d in depended_by
+        )
+        await _record_token_estimate(pool, pid, "read_section", loaded_words)
 
         return ok({
             "section": row_to_dict(sec),
@@ -893,6 +901,10 @@ async def prd_get_overview(project: str) -> str:
             st = s["status"]
             status_counts[st] = status_counts.get(st, 0) + 1
 
+        # Track token savings — overview loads summaries only
+        loaded_words = sum(len((s["summary"] or "").split()) for s in sections)
+        await _record_token_estimate(pool, proj["id"], "get_overview", loaded_words)
+
         return ok({
             "project": {
                 "slug": proj["slug"], "name": proj["name"],
@@ -933,6 +945,8 @@ async def prd_search(project: str, query: str) -> str:
                 FROM sections WHERE project_id = $1 AND $2 = ANY(tags)
                 ORDER BY sort_order
             """, pid, tag)
+            loaded_words = sum(len((r["summary"] or "").split()) for r in rows)
+            await _record_token_estimate(pool, pid, "search", loaded_words)
             return ok({"tag": tag, "results": [row_to_dict(r) for r in rows]})
         else:
             rows = await pool.fetch("""
@@ -948,6 +962,8 @@ async def prd_search(project: str, query: str) -> str:
                       @@ plainto_tsquery('english', $2)
                 ORDER BY rank DESC
             """, pid, query)
+            loaded_words = sum(len((r["snippet"] or "").split()) for r in rows)
+            await _record_token_estimate(pool, pid, "search", loaded_words)
             return ok({"query": query, "results": [row_to_dict(r) for r in rows]})
     except Exception as e:
         logger.error("prd_search: %s", e)
@@ -1145,19 +1161,28 @@ def _auto_summary(content: str) -> str:
     return text
 
 
-def _parse_markdown_sections(markdown: str) -> list[dict]:
-    sections = []
+def _parse_markdown_sections(
+    markdown: str,
+    heading_level: int = 2,
+    manual_delimiter: str | None = None,
+) -> list[dict]:
+    if manual_delimiter:
+        return _parse_by_delimiter(markdown, manual_delimiter)
+
+    prefix = "#" * heading_level + " "
+    too_deep = "#" * (heading_level + 1) + " "
+    sections: list[dict] = []
     current = None
     in_fence = False
     for line in markdown.split("\n"):
         stripped = line.strip()
         if stripped.startswith("```") or stripped.startswith("~~~"):
             in_fence = not in_fence
-        if not in_fence and line.startswith("## ") and not line.startswith("### "):
+        if not in_fence and line.startswith(prefix) and not line.startswith(too_deep):
             if current:
                 current["content"] = "\n".join(current["lines"]).strip()
                 sections.append(current)
-            title = line[3:].strip()
+            title = line[len(prefix):].strip()
             current = {"title": title, "slug": _slugify(title), "lines": []}
         elif current is not None:
             current["lines"].append(line)
@@ -1167,14 +1192,44 @@ def _parse_markdown_sections(markdown: str) -> list[dict]:
     return sections
 
 
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
+
+
+def _parse_by_delimiter(markdown: str, delimiter: str) -> list[dict]:
+    chunks = markdown.split(delimiter)
+    sections: list[dict] = []
+    for i, chunk in enumerate(chunks):
+        text = chunk.strip()
+        if not text:
+            continue
+        m = _HEADING_RE.search(text)
+        if m:
+            title = m.group(2).strip()
+        else:
+            title = f"Section {len(sections) + 1}"
+        sections.append({
+            "title": title,
+            "slug": _slugify(title),
+            "content": text,
+        })
+    return sections
+
+
 @mcp.tool(
     annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
 )
 async def prd_import_markdown(
-    project: str, markdown: str, replace_existing: bool = False,
+    project: str,
+    markdown: str,
+    replace_existing: bool = False,
+    heading_level: int = 2,
+    manual_delimiter: str = "",
 ) -> str:
     """
-    Import markdown document into a project. Splits on ## headings.
+    Import markdown document into a project.
+    Splits on headings at the given level (default ##).
+    Set heading_level=1 for # headings, 3 for ### headings, etc.
+    Or set manual_delimiter (e.g. '<!-- split -->') to split on that string instead.
     replace_existing=true overwrites matching slugs (saves revision first).
     """
     try:
@@ -1183,9 +1238,12 @@ async def prd_import_markdown(
         if not pid:
             return err(f"project '{project}' not found")
 
-        parsed = _parse_markdown_sections(markdown)
+        delimiter = manual_delimiter if manual_delimiter else None
+        parsed = _parse_markdown_sections(markdown, heading_level=heading_level, manual_delimiter=delimiter)
         if not parsed:
-            return err("no sections found — expected ## headings")
+            if delimiter:
+                return err(f"no sections found — expected delimiter '{delimiter}'")
+            return err(f"no sections found — expected {'#' * heading_level} headings")
 
         results = []
         for i, sec in enumerate(parsed):
@@ -1272,6 +1330,141 @@ async def prd_bulk_status(
         return ok({"status": status, "updated": updated, "not_found": not_found})
     except Exception as e:
         logger.error("prd_bulk_status: %s", e)
+        return err(str(e))
+
+
+# --- Group 9: Token Stats ---
+
+async def _record_token_estimate(pool, pid, operation: str, loaded_words: int):
+    """Record a token estimate for tracking context savings."""
+    try:
+        full_doc_words = await pool.fetchval(
+            "SELECT COALESCE(SUM(word_count), 0) FROM sections WHERE project_id = $1", pid,
+        )
+        full_tokens = int(full_doc_words * 1.3)
+        loaded_tokens = int(loaded_words * 1.3)
+        await pool.execute(
+            "INSERT INTO token_estimates (project_id, operation, full_doc_tokens, loaded_tokens) "
+            "VALUES ($1, $2, $3, $4)",
+            pid, operation, full_tokens, loaded_tokens,
+        )
+    except Exception as e:
+        logger.warning("token estimate recording failed: %s", e)
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+)
+async def prd_token_stats(project: str) -> str:
+    """
+    Token savings statistics. Shows total estimated tokens saved by using
+    sectional reads instead of loading the full document. ~200 tokens.
+    """
+    try:
+        pool = await get_pool()
+        pid = await resolve_project_id(pool, project)
+        if not pid:
+            return err(f"project '{project}' not found")
+
+        totals = await pool.fetchrow("""
+            SELECT COUNT(*) AS operations,
+                   COALESCE(SUM(full_doc_tokens), 0) AS total_full,
+                   COALESCE(SUM(loaded_tokens), 0) AS total_loaded
+            FROM token_estimates WHERE project_id = $1
+        """, pid)
+
+        by_op = await pool.fetch("""
+            SELECT operation,
+                   COUNT(*) AS count,
+                   SUM(full_doc_tokens) AS full_tokens,
+                   SUM(loaded_tokens) AS loaded_tokens
+            FROM token_estimates WHERE project_id = $1
+            GROUP BY operation ORDER BY count DESC
+        """, pid)
+
+        daily = await pool.fetch("""
+            SELECT created_at::date AS day,
+                   COUNT(*) AS operations,
+                   SUM(full_doc_tokens - loaded_tokens) AS tokens_saved
+            FROM token_estimates WHERE project_id = $1
+              AND created_at > now() - interval '7 days'
+            GROUP BY day ORDER BY day DESC
+        """, pid)
+
+        total_full = totals["total_full"]
+        total_loaded = totals["total_loaded"]
+        saved = total_full - total_loaded
+        pct = round(saved / total_full * 100, 1) if total_full > 0 else 0
+
+        return ok({
+            "operations": totals["operations"],
+            "total_full_doc_tokens": total_full,
+            "total_loaded_tokens": total_loaded,
+            "total_saved_tokens": saved,
+            "savings_percent": pct,
+            "by_operation": [row_to_dict(r) for r in by_op],
+            "daily_trend": [{"day": str(r["day"]), "operations": r["operations"],
+                             "tokens_saved": r["tokens_saved"]} for r in daily],
+        })
+    except Exception as e:
+        logger.error("prd_token_stats: %s", e)
+        return err(str(e))
+
+
+# --- Group 10: Dependency Suggestions ---
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+)
+async def prd_suggest_dependencies(project: str, section: str) -> str:
+    """
+    Suggest potential dependencies for a section based on content similarity.
+    Uses full-text search to find sections with overlapping terms.
+    Returns up to 5 suggestions ranked by relevance. ~200 tokens.
+    """
+    try:
+        pool = await get_pool()
+        pid = await resolve_project_id(pool, project)
+        if not pid:
+            return err(f"project '{project}' not found")
+
+        target = await pool.fetchrow(
+            "SELECT id, title, content FROM sections WHERE project_id = $1 AND slug = $2",
+            pid, section,
+        )
+        if not target:
+            return err(f"section '{section}' not found in project '{project}'")
+
+        # Build search query from title + first 500 chars of content
+        search_text = (target["title"] or "") + " " + (target["content"] or "")[:500]
+
+        suggestions = await pool.fetch("""
+            SELECT s.slug, s.title, s.summary,
+                   ts_rank(
+                       to_tsvector('english', coalesce(s.title,'') || ' ' || coalesce(s.content,'') || ' ' || coalesce(s.notes,'')),
+                       plainto_tsquery('english', $3)
+                   ) AS relevance,
+                   LEFT(s.content, 200) AS snippet
+            FROM sections s
+            WHERE s.project_id = $1
+              AND s.id != $2
+              AND s.id NOT IN (
+                  SELECT depends_on_id FROM section_dependencies WHERE section_id = $2
+                  UNION
+                  SELECT section_id FROM section_dependencies WHERE depends_on_id = $2
+              )
+              AND to_tsvector('english', coalesce(s.title,'') || ' ' || coalesce(s.content,'') || ' ' || coalesce(s.notes,''))
+                  @@ plainto_tsquery('english', $3)
+            ORDER BY relevance DESC
+            LIMIT 5
+        """, pid, target["id"], search_text)
+
+        return ok({
+            "section": section,
+            "suggestions": [row_to_dict(r) for r in suggestions],
+        })
+    except Exception as e:
+        logger.error("prd_suggest_dependencies: %s", e)
         return err(str(e))
 
 

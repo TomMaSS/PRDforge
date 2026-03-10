@@ -10,9 +10,11 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/01_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      # Default seed: SnapHabit sample project (12 sections, 12 deps)
       - ./db/02_seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
       - ./db/03_comments.sql:/docker-entrypoint-initdb.d/03_comments.sql:ro
       - ./db/04_replies_and_settings.sql:/docker-entrypoint-initdb.d/04_replies_and_settings.sql:ro
+      - ./db/05_token_stats.sql:/docker-entrypoint-initdb.d/05_token_stats.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prdforge}"]
       interval: 3s

@@ -15,7 +15,7 @@ class TestProjectManagement:
         import server
         result = json.loads(await server.prd_list_projects())
         assert isinstance(result, list)
-        assert any(p["slug"] == "contentforge" for p in result)
+        assert any(p["slug"] == "snaphabit" for p in result)
 
     async def test_create_and_delete_project(self, mcp_pool):
         import server
@@ -45,14 +45,14 @@ class TestProjectManagement:
 class TestSectionCRUD:
     async def test_list_sections(self, mcp_pool):
         import server
-        result = json.loads(await server.prd_list_sections(project="contentforge"))
+        result = json.loads(await server.prd_list_sections(project="snaphabit"))
         assert isinstance(result, list)
         assert len(result) == 12
 
     async def test_read_section_with_deps(self, mcp_pool):
         import server
         result = json.loads(await server.prd_read_section(
-            project="contentforge", section="data-model"
+            project="snaphabit", section="data-model"
         ))
         assert "section" in result
         assert result["section"]["slug"] == "data-model"
@@ -65,7 +65,7 @@ class TestSectionCRUD:
     async def test_read_section_not_found(self, mcp_pool):
         import server
         result = json.loads(await server.prd_read_section(
-            project="contentforge", section="nonexistent"
+            project="snaphabit", section="nonexistent"
         ))
         assert "error" in result
 
@@ -119,14 +119,14 @@ class TestSectionCRUD:
     async def test_update_section_invalid_status(self, mcp_pool):
         import server
         result = json.loads(await server.prd_update_section(
-            project="contentforge", section="vision-and-overview", status="invalid"
+            project="snaphabit", section="overview", status="invalid"
         ))
         assert "error" in result
 
     async def test_update_section_empty(self, mcp_pool):
         import server
         result = json.loads(await server.prd_update_section(
-            project="contentforge", section="vision-and-overview"
+            project="snaphabit", section="overview"
         ))
         assert "error" in result
         assert "nothing to update" in result["error"]
@@ -201,7 +201,7 @@ class TestDependencies:
     async def test_self_dependency_rejected(self, mcp_pool):
         import server
         result = json.loads(await server.prd_add_dependency(
-            project="contentforge", section="vision-and-overview", depends_on="vision-and-overview"
+            project="snaphabit", section="overview", depends_on="overview"
         ))
         assert "error" in result
 
@@ -212,9 +212,9 @@ class TestDependencies:
         await server.prd_create_section(
             project="other-proj", slug="foreign", title="Foreign Section"
         )
-        # Try to create dep between contentforge section and other-proj section
+        # Try to create dep between SnapHabit section and other-proj section
         result = json.loads(await server.prd_add_dependency(
-            project="contentforge", section="vision-and-overview", depends_on="foreign"
+            project="snaphabit", section="overview", depends_on="foreign"
         ))
         assert "error" in result
 
@@ -222,7 +222,7 @@ class TestDependencies:
 class TestContextSearch:
     async def test_overview(self, mcp_pool):
         import server
-        result = json.loads(await server.prd_get_overview(project="contentforge"))
+        result = json.loads(await server.prd_get_overview(project="snaphabit"))
         assert "project" in result
         assert "stats" in result
         assert result["stats"]["sections"] == 12
@@ -232,7 +232,7 @@ class TestContextSearch:
     async def test_fts_search(self, mcp_pool):
         import server
         result = json.loads(await server.prd_search(
-            project="contentforge", query="PostgreSQL"
+            project="snaphabit", query="PostgreSQL"
         ))
         assert "results" in result
         assert len(result["results"]) > 0
@@ -240,7 +240,7 @@ class TestContextSearch:
     async def test_tag_search(self, mcp_pool):
         import server
         result = json.loads(await server.prd_search(
-            project="contentforge", query="tag:backend"
+            project="snaphabit", query="tag:backend"
         ))
         assert "tag" in result
         assert result["tag"] == "backend"
@@ -248,7 +248,7 @@ class TestContextSearch:
 
     async def test_changelog(self, mcp_pool):
         import server
-        result = json.loads(await server.prd_get_changelog(project="contentforge"))
+        result = json.loads(await server.prd_get_changelog(project="snaphabit"))
         assert "changelog" in result
         assert "total" in result
 
@@ -257,9 +257,9 @@ class TestRevisions:
     async def test_get_revisions_empty(self, mcp_pool):
         import server
         result = json.loads(await server.prd_get_revisions(
-            project="contentforge", section="vision-and-overview"
+            project="snaphabit", section="overview"
         ))
-        assert result["section"] == "vision-and-overview"
+        assert result["section"] == "overview"
         assert isinstance(result["revisions"], list)
 
     async def test_read_revision(self, mcp_pool):
@@ -359,9 +359,9 @@ class TestRevisionConcurrency:
 class TestExportImport:
     async def test_export(self, mcp_pool):
         import server
-        result = await server.prd_export_markdown(project="contentforge")
-        assert "# ContentForge" in result
-        assert "## Vision" in result
+        result = await server.prd_export_markdown(project="snaphabit")
+        assert "# SnapHabit" in result
+        assert "## Overview" in result
 
     async def test_import_new(self, mcp_pool):
         import server
@@ -538,7 +538,7 @@ class TestCommentReplies:
 class TestProjectSettings:
     async def test_get_defaults(self, mcp_pool):
         import server
-        result = json.loads(await server.prd_get_settings(project="contentforge"))
+        result = json.loads(await server.prd_get_settings(project="snaphabit"))
         assert result["settings"]["claude_comment_replies"] is True
 
     async def test_update_and_get(self, mcp_pool):
@@ -567,11 +567,116 @@ class TestProjectSettings:
     async def test_invalid_setting(self, mcp_pool):
         import server
         result = json.loads(await server.prd_update_settings(
-            project="contentforge", settings={"unknown_key": True}
+            project="snaphabit", settings={"unknown_key": True}
         ))
         assert "error" in result
         # Wrong type
         result2 = json.loads(await server.prd_update_settings(
-            project="contentforge", settings={"claude_comment_replies": "yes"}
+            project="snaphabit", settings={"claude_comment_replies": "yes"}
         ))
         assert "error" in result2
+
+
+class TestImportHeadingLevels:
+    async def test_heading_level_1(self, mcp_pool):
+        import server
+        await server.prd_create_project(name="H1Test", slug="h1-test")
+        md = "# First Section\n\nContent one.\n\n# Second Section\n\nContent two.\n"
+        result = json.loads(await server.prd_import_markdown(
+            project="h1-test", markdown=md, heading_level=1
+        ))
+        assert result["imported"] == 2
+        assert result["sections"][0]["slug"] == "first-section"
+        assert result["sections"][1]["slug"] == "second-section"
+
+    async def test_heading_level_3(self, mcp_pool):
+        import server
+        await server.prd_create_project(name="H3Test", slug="h3-test")
+        md = "## Parent\n\n### Sub A\n\nContent A.\n\n### Sub B\n\nContent B.\n"
+        result = json.loads(await server.prd_import_markdown(
+            project="h3-test", markdown=md, heading_level=3
+        ))
+        assert result["imported"] == 2
+        assert result["sections"][0]["slug"] == "sub-a"
+
+    async def test_manual_delimiter(self, mcp_pool):
+        import server
+        await server.prd_create_project(name="DelimTest", slug="delim-test")
+        md = "## Intro\n\nFirst chunk.\n\n<!-- split -->\n\n## Details\n\nSecond chunk.\n\n<!-- split -->\n\nNo heading here.\n"
+        result = json.loads(await server.prd_import_markdown(
+            project="delim-test", markdown=md, manual_delimiter="<!-- split -->"
+        ))
+        assert result["imported"] == 3
+        assert result["sections"][0]["slug"] == "intro"
+        assert result["sections"][1]["slug"] == "details"
+        # Third section has no heading, gets auto-title
+        assert result["sections"][2]["slug"] == "section-3"
+
+    async def test_default_heading_level_unchanged(self, mcp_pool):
+        """Existing behavior (## splitting) still works with default params."""
+        import server
+        await server.prd_create_project(name="DefTest", slug="def-test")
+        md = "# Top\n\n## Alpha\n\nContent A.\n\n## Beta\n\nContent B.\n"
+        result = json.loads(await server.prd_import_markdown(
+            project="def-test", markdown=md
+        ))
+        assert result["imported"] == 2
+        assert result["sections"][0]["slug"] == "alpha"
+
+
+class TestTokenStats:
+    async def test_token_stats_empty(self, mcp_pool):
+        import server
+        await server.prd_create_project(name="TSEmpty", slug="ts-empty")
+        result = json.loads(await server.prd_token_stats(project="ts-empty"))
+        assert result["operations"] == 0
+        assert result["savings_percent"] == 0
+
+    async def test_token_stats_after_read(self, mcp_pool):
+        import server
+        # Read a section to generate token estimates
+        await server.prd_read_section(project="snaphabit", section="overview")
+        result = json.loads(await server.prd_token_stats(project="snaphabit"))
+        assert result["operations"] >= 1
+        assert result["total_full_doc_tokens"] > 0
+        assert result["total_loaded_tokens"] > 0
+        assert result["total_saved_tokens"] > 0
+        assert result["savings_percent"] > 0
+
+    async def test_token_stats_by_operation(self, mcp_pool):
+        import server
+        await server.prd_read_section(project="snaphabit", section="overview")
+        await server.prd_get_overview(project="snaphabit")
+        result = json.loads(await server.prd_token_stats(project="snaphabit"))
+        ops = {r["operation"] for r in result["by_operation"]}
+        assert "read_section" in ops
+        assert "get_overview" in ops
+
+
+class TestSuggestDependencies:
+    async def test_suggest_returns_results(self, mcp_pool):
+        import server
+        result = json.loads(await server.prd_suggest_dependencies(
+            project="snaphabit", section="api-spec"
+        ))
+        assert "suggestions" in result
+        # api-spec content mentions Lambda, DynamoDB, Cognito concepts
+        # so we should get some suggestions
+        assert isinstance(result["suggestions"], list)
+
+    async def test_suggest_excludes_existing_deps(self, mcp_pool):
+        import server
+        result = json.loads(await server.prd_suggest_dependencies(
+            project="snaphabit", section="api-spec"
+        ))
+        # api-spec already depends on tech-stack and data-model
+        existing_deps = {"tech-stack", "data-model"}
+        suggested_slugs = {s["slug"] for s in result["suggestions"]}
+        assert not suggested_slugs.intersection(existing_deps)
+
+    async def test_suggest_nonexistent_section(self, mcp_pool):
+        import server
+        result = json.loads(await server.prd_suggest_dependencies(
+            project="snaphabit", section="nonexistent"
+        ))
+        assert "error" in result
