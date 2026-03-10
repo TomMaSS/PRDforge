@@ -1,6 +1,6 @@
 # PRD Forge
 
-<!-- ![PRDforge Demo](demo.gif) uncomment after generating the GIF -->
+![PRDforge Demo](demo.gif)
 
 **Stop feeding your entire spec to Claude every time you change one paragraph.**
 

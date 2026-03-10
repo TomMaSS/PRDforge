@@ -2,7 +2,7 @@
 
 ## High Impact, Moderate Effort – Do Next
 
-- [ ] Demo GIF/video in README — record 30-45s terminal session (import markdown PRD, read a section with token count, leave a comment, have Claude resolve it). Convert with `vhs` or `asciinema`, place above the fold in README
+- [x] Demo GIF/video in README — Playwright-based recording script (`scripts/record_demo.py`), GIF above the fold
 - [ ] Token savings dashboard in Web UI — chart showing cumulative tokens saved over time, savings per section read, comparison bar ("full doc: 15,000 tokens vs loaded: 1,320 tokens"). Proof-of-value screen users will screenshot and share
 - [ ] `prd_import_url` tool — fetch a Google Doc, Notion page, or raw URL and import as sections. Support public Google Docs and raw GitHub markdown files to reduce onboarding friction
 - [ ] Section templates — offer project templates beyond blank/SnapHabit: "SaaS MVP", "API Design", "Mobile App", "Infrastructure Migration". Each is a seed SQL or importable markdown showcasing different dependency patterns
