@@ -1,5 +1,7 @@
 # PRD Forge
 
+![PRDforge Demo](demo.gif)
+
 **Stop feeding your entire spec to Claude every time you change one paragraph.**
 
 PRD Forge splits your product requirements into independently addressable sections stored in PostgreSQL, then gives Claude surgical read/write access through 31 MCP tools. The result: edits that used to burn ~15,000 tokens now cost 500-2,000 — an **85-95% reduction** in context per operation.

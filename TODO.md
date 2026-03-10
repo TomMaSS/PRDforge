@@ -39,6 +39,7 @@
 
 ## Done
 
+- [x] Demo GIF/video recording script (Playwright-based, `scripts/record_demo.py`)
 - [x] Infrastructure files (.gitignore, .env.example, docker-compose.yml, Dockerfiles, requirements)
 - [x] Database schema with composite FK cross-project guard
 - [x] Seed data (SnapHabit, 12 sections, 12 dependencies)
