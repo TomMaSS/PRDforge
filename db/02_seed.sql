@@ -1,19 +1,15 @@
--- ContentForge Seed Data
+-- SnapHabit — Mobile habit tracker with AWS backend
+-- Sample PRD demonstrating PRD Forge with 12 sections and 10 dependencies.
 
--- Project
 INSERT INTO projects (id, name, slug, description, version)
 VALUES (
     'a0000000-0000-0000-0000-000000000001',
-    'ContentForge',
-    'contentforge',
-    'AI-powered content generation and management platform for creative teams',
+    'SnapHabit',
+    'snaphabit',
+    'Mobile habit-tracking app with streak photos, social accountability, and an AWS serverless backend',
     1
 );
 
--- Helper: project ID variable
--- Using explicit UUIDs for referential integrity
-
--- Sections
 -- 0: Overview
 INSERT INTO sections (id, project_id, slug, title, section_type, sort_order, status, tags, content, summary, notes)
 VALUES (
@@ -25,57 +21,60 @@ VALUES (
     0,
     'approved',
     ARRAY['mvp', 'core'],
-    'ContentForge is an AI-powered content generation and management platform designed for creative teams working with text, images, and video. The platform orchestrates multiple AI models (GPT-4, Stable Diffusion, ComfyUI) through a unified pipeline that handles job scheduling, asset management, and workflow automation.
+    'SnapHabit is a **mobile habit-tracking application** that combines daily streak tracking with photo proof and lightweight social accountability. Users create habits, log completions with optional photos, and share progress with accountability partners.
 
-The primary goal is to reduce content production time by 60% while maintaining brand consistency through templated workflows. Teams can define reusable content pipelines that combine text generation, image creation, and post-processing steps into single-click operations.
+The primary goal is to increase habit retention by 40% compared to simple checklist apps by adding visual proof and social pressure. The app targets individuals aged 18-35 who want to build consistent routines around fitness, reading, meditation, or creative practices.
 
 Key objectives:
-- Unified dashboard for all content generation tasks
-- Template-based workflow system with approval gates
-- Asset versioning and collaborative review
-- Integration with existing DAM (Digital Asset Management) systems
-- Cost tracking per generation job with budget alerts
+- Simple habit creation with configurable frequency (daily, weekdays, custom)
+- Photo-based completion logging with streak calendar visualization
+- Accountability partner system with push notification nudges
+- Cloud sync across devices with offline-first architecture
+- Privacy-first: photos stored encrypted, shared only with explicit consent
 
-The platform targets mid-size marketing teams (5-20 people) who currently use 3-5 separate AI tools and spend significant time on manual handoffs between tools.',
-    'AI content generation platform orchestrating GPT-4, Stable Diffusion, and ComfyUI through unified pipelines. Targets 60% reduction in content production time for marketing teams of 5-20 people.',
-    'Q: Should we support video generation in v1 or defer to v2?
-Decision: Defer video to v2, focus on text + image pipelines for MVP.'
+The backend runs entirely on AWS serverless infrastructure to minimize ops overhead and scale automatically from zero to thousands of users.',
+    'Mobile habit tracker with streak photos and social accountability. Targets 40% better retention vs checklist apps for users aged 18-35. AWS serverless backend with offline-first mobile architecture.',
+    'Q: Should we support habit templates (pre-built habits) in v1?
+Decision: Yes, ship 10 starter templates for common habits (exercise, reading, meditation, water intake).'
 );
 
--- 1: Hardware
+-- 1: User Research
 INSERT INTO sections (id, project_id, slug, title, section_type, sort_order, status, tags, content, summary, notes)
 VALUES (
     'b0000000-0000-0000-0000-000000000002',
     'a0000000-0000-0000-0000-000000000001',
-    'hardware',
-    'Hardware Constraints',
-    'tech_spec',
+    'user-research',
+    'User Research & Personas',
+    'general',
     1,
     'approved',
-    ARRAY['infra', 'core'],
-    'ContentForge runs on a hybrid infrastructure combining cloud GPU instances and local development servers.
+    ARRAY['core'],
+    'Three primary personas identified through 40 user interviews:
 
-Production environment:
-- 2x NVIDIA A100 80GB nodes for Stable Diffusion and ComfyUI workloads
-- 1x 32-core CPU node for API server, queue workers, and database
-- Shared NFS storage: 2TB for asset files, 500GB for model weights
-- PostgreSQL 16 on dedicated SSD storage (1TB)
+**Persona 1: "Gym Alex" (25, software engineer)**
+- Wants to track gym visits with progress photos
+- Current pain: forgets to log, loses streaks in existing apps
+- Key need: frictionless logging (< 5 seconds), photo attachment
+- Willing to pay $4.99/month for premium features
 
-Development environment:
-- Mac Mini M2 Pro (local development and testing)
-- Single NVIDIA RTX 4090 for local model inference
-- Docker Desktop with 16GB RAM allocation
+**Persona 2: "Reader Maya" (30, product manager)**
+- Tracks reading habit (30 min/day) and meditation
+- Current pain: no accountability, easy to skip without consequence
+- Key need: accountability partner who gets notified on missed days
+- Values privacy — won''t use apps that share data publicly
 
-Network constraints:
-- Inter-node communication via 10Gbps internal network
-- External API rate limits: OpenAI (10K RPM), Stability AI (150 RPM)
-- Asset CDN bandwidth: 1Gbps with 50TB monthly transfer
+**Persona 3: "Creative Sam" (22, design student)**
+- Tracks daily sketching, journaling, and language practice
+- Current pain: too many apps for different habits
+- Key need: single app for all habits with visual calendar
+- Price-sensitive, prefers free tier with ads over subscription
 
-Cost targets:
-- GPU compute: < $3,000/month at 70% utilization
-- Storage: < $200/month
-- API costs: variable, tracked per-job',
-    'Hybrid cloud-local infrastructure: 2x A100 GPU nodes for AI workloads, 32-core CPU node for services, NFS shared storage. Dev on Mac Mini M2 Pro with RTX 4090. GPU budget under $3K/month.',
+**Key findings:**
+- 85% of interviewees abandoned previous habit apps within 2 weeks
+- Top reason for abandonment: "forgot to open the app" (62%)
+- Social accountability rated as most desired missing feature (78%)
+- Photo proof considered "fun and motivating" by 71% of respondents',
+    'Three personas from 40 interviews: fitness tracker, reader/meditator, creative student. 85% abandon habit apps within 2 weeks. Top needs: frictionless logging, accountability partners, visual calendar.',
     ''
 );
 
@@ -89,40 +88,37 @@ VALUES (
     'tech_spec',
     2,
     'approved',
-    ARRAY['mvp', 'core'],
-    'Core technology decisions for ContentForge:
+    ARRAY['mvp', 'backend'],
+    'Core technology decisions for SnapHabit:
 
-**Backend:**
-- Python 3.11 with FastAPI for REST API
-- Temporal.io for workflow orchestration (job scheduling, retry logic, saga patterns)
-- Celery + Redis for lightweight async tasks (notifications, thumbnails)
-- asyncpg for PostgreSQL access
+**Mobile (cross-platform):**
+- React Native 0.73 with Expo managed workflow
+- TypeScript for type safety
+- React Navigation for routing
+- Zustand for client state management
+- WatermelonDB for offline-first local database (SQLite-backed)
+- expo-camera for photo capture, expo-notifications for push
 
-**Frontend:**
-- Next.js 14 with App Router
-- Tailwind CSS + shadcn/ui component library
-- TanStack Query for server state management
+**Backend (AWS serverless):**
+- API Gateway (HTTP API) → Lambda (Node.js 20 runtime)
+- Amazon DynamoDB for user data, habits, and completions
+- Amazon S3 for encrypted photo storage (AES-256 server-side encryption)
+- Amazon Cognito for authentication (email + Apple/Google social login)
+- Amazon SNS for push notification delivery
+- AWS CDK (TypeScript) for infrastructure as code
 
-**AI/ML:**
-- OpenAI GPT-4 API for text generation
-- Stable Diffusion (self-hosted via diffusers library) for image generation
-- ComfyUI for advanced image workflows (inpainting, upscaling, style transfer)
-- CLIP for image-text similarity scoring
+**Database design:**
+- DynamoDB single-table design with GSI for access patterns
+- PostgreSQL on Amazon RDS (db.t4g.micro) for analytics aggregation and reporting queries that don''t fit DynamoDB patterns
+- S3 lifecycle rules: move photos to Glacier after 1 year
 
-**Infrastructure:**
-- Docker Compose for local development
-- Kubernetes (k3s) for production deployment
-- MinIO for S3-compatible object storage
-- Prometheus + Grafana for monitoring
-- Loki for log aggregation
-
-**Database:**
-- PostgreSQL 16 (primary datastore)
-- Redis 7 (caching, rate limiting, Celery broker)
-- pgvector extension for embedding similarity search',
-    'Python/FastAPI backend, Next.js frontend, Temporal.io for workflow orchestration. AI stack: GPT-4, self-hosted Stable Diffusion, ComfyUI. PostgreSQL 16 + Redis, deployed via Docker/k3s.',
-    'TODO: Evaluate n8n as Temporal alternative — simpler ops, visual workflow editor.
-TODO: Benchmark pgvector vs dedicated vector DB (Qdrant) for embedding search.'
+**CI/CD:**
+- GitHub Actions for Lambda deployment and Expo EAS builds
+- Jest + React Native Testing Library for unit tests
+- Detox for end-to-end mobile tests',
+    'React Native + Expo mobile app with TypeScript. AWS serverless backend: API Gateway, Lambda, DynamoDB, S3, Cognito. PostgreSQL on RDS for analytics. CDK for IaC, GitHub Actions CI/CD.',
+    'TODO: Evaluate Supabase as simpler alternative to raw AWS services.
+TODO: Benchmark DynamoDB vs PostgreSQL for habit completion queries at scale.'
 );
 
 -- 3: Data Model
@@ -135,593 +131,438 @@ VALUES (
     'data_model',
     3,
     'in_progress',
-    ARRAY['mvp', 'core'],
-    'PostgreSQL schema for ContentForge, managed via Alembic migrations.
+    ARRAY['mvp', 'backend'],
+    'DynamoDB single-table design with composite keys and GSIs.
 
-**Core entities:**
+**Primary table: SnapHabit**
 
-`jobs` — Central work unit. Each content generation request creates a Job.
-- id (UUID), project_id (FK), workflow_id (FK), status (enum: queued/running/completed/failed/cancelled)
-- input_params (JSONB), output_assets (UUID[]), cost_cents (INT)
-- created_by (FK users), created_at, completed_at
-- Priority queue ordering via (priority, created_at) index
+| PK | SK | Attributes |
+|----|----|----|
+| USER#userId | PROFILE | email, name, avatar_url, timezone, created_at |
+| USER#userId | HABIT#habitId | title, frequency, reminder_time, color, icon, streak_current, streak_best, created_at |
+| USER#userId | COMPLETION#habitId#date | photo_key (S3), note, completed_at |
+| USER#userId | PARTNER#partnerId | status (pending/accepted), since |
 
-`assets` — Generated or uploaded files.
-- id (UUID), job_id (FK nullable), file_path (TEXT), mime_type (TEXT), size_bytes (BIGINT)
-- metadata (JSONB — dimensions, duration, model used, seed)
-- version (INT), parent_asset_id (FK self — for iterations)
-- Soft delete via deleted_at timestamp
+**GSI1 (partner lookup):**
+| GSI1PK | GSI1SK |
+|--------|--------|
+| PARTNER#partnerId | USER#userId |
 
-`workflows` — Reusable generation templates.
-- id (UUID), name, slug, description, steps (JSONB array)
-- Each step: {type: "text"|"image"|"transform", model: str, params: {}}
-- is_template (BOOL), created_by (FK users)
+**GSI2 (completions by date for analytics):**
+| GSI2PK | GSI2SK |
+|--------|--------|
+| USER#userId | DATE#YYYY-MM-DD |
 
-`users` — Team members with role-based access.
-- id (UUID), email, name, role (enum: admin/editor/viewer)
-- budget_limit_cents (INT nullable), api_keys (JSONB encrypted)
+**PostgreSQL analytics tables (RDS):**
+- `daily_aggregates` — per-user daily completion counts, synced from DynamoDB via Lambda
+- `cohort_metrics` — retention curves, streak distributions
+- `notification_log` — push notification delivery and open rates
 
-Indexes: composite on (project_id, status, created_at) for dashboard queries, GIN on input_params and metadata JSONB fields, trigram on asset file_path for search.',
-    'PostgreSQL schema with 4 core entities: Jobs (generation tasks with cost tracking), Assets (versioned files with metadata), Workflows (reusable step-based templates), Users (role-based access). Managed via Alembic migrations.',
-    'TODO: Add Schedule entity for recurring job execution.
-Q: Should asset versions be separate rows or use a versions JSONB array?
-Decision pending: leaning toward separate rows for queryability.'
+**S3 structure:**
+- `photos/{userId}/{habitId}/{date}.jpg` — completion photos (encrypted, lifecycle to Glacier at 365 days)
+- `avatars/{userId}.jpg` — profile pictures',
+    'DynamoDB single-table with USER/HABIT/COMPLETION/PARTNER entities. Two GSIs for partner lookup and date-based queries. PostgreSQL on RDS for analytics aggregation. S3 for encrypted photo storage.',
+    'Q: Should completions be stored per-date (one item) or per-event (multiple)?
+Decision: Per-date — one completion per habit per day, last write wins.'
 );
 
--- 4: Pipeline
+-- 4: API Specification
 INSERT INTO sections (id, project_id, slug, title, section_type, sort_order, status, tags, content, summary, notes)
 VALUES (
     'b0000000-0000-0000-0000-000000000005',
     'a0000000-0000-0000-0000-000000000001',
-    'pipeline',
-    'Processing Pipeline',
-    'tech_spec',
+    'api-spec',
+    'API Specification',
+    'api_spec',
     4,
     'in_progress',
-    ARRAY['mvp', 'core', 'ai'],
-    'The processing pipeline is the core execution engine of ContentForge. It receives job requests, resolves workflow steps, dispatches to appropriate AI models, and manages the output lifecycle.
+    ARRAY['mvp', 'backend'],
+    'REST API via API Gateway + Lambda. All endpoints require Cognito JWT auth.
 
-**Pipeline stages:**
+**Base URL:** `https://api.snaphabit.app/v1`
 
-1. **Job Intake** — API receives generation request, validates input, creates Job record with status=queued.
-2. **Workflow Resolution** — Temporal workflow starts, loads workflow template, resolves step parameters from input_params + defaults.
-3. **Step Execution** — Each step runs as a Temporal activity:
-   - Text steps → OpenAI GPT-4 API call with prompt template
-   - Image steps → Stable Diffusion inference (local GPU) or ComfyUI workflow
-   - Transform steps → FFmpeg, ImageMagick, or custom Python transforms
-4. **Asset Registration** — Each step output is saved to MinIO, registered as Asset with metadata.
-5. **Quality Gate** — Optional CLIP similarity check: does output match intent? Auto-retry if score < threshold.
-6. **Completion** — Job marked completed, cost calculated from model usage, notification sent.
+**Habits:**
+- `POST /habits` — Create habit {title, frequency, reminder_time, color, icon}
+- `GET /habits` — List user''s habits with current streak info
+- `PUT /habits/{id}` — Update habit settings
+- `DELETE /habits/{id}` — Archive habit (soft delete, preserves completions)
 
-**Error handling:**
-- Temporal handles retries with exponential backoff (max 3 attempts per step)
-- Failed steps produce partial results (completed steps preserved)
-- Dead letter queue for jobs that exceed retry limits
-- Circuit breaker on external APIs (OpenAI) — fallback to cached similar results
+**Completions:**
+- `POST /habits/{id}/complete` — Log completion {photo?: File, note?: string}
+- `GET /habits/{id}/completions?month=YYYY-MM` — Monthly completion calendar
+- `DELETE /habits/{id}/completions/{date}` — Undo completion
 
-**Throughput targets:**
-- Text generation: < 5s per 1000 words
-- Image generation: < 30s per 1024x1024 image (A100)
-- End-to-end pipeline: < 2 minutes for typical 3-step workflow',
-    'Temporal-orchestrated pipeline: Job Intake → Workflow Resolution → Step Execution (text/image/transform) → Asset Registration → Quality Gate (CLIP scoring) → Completion. Handles retries, partial failures, and cost tracking per step.',
-    'TODO: Implement priority queue — high-priority jobs should preempt batch jobs.
-TODO: Add webhook callback support for pipeline completion events.'
+**Partners:**
+- `POST /partners/invite` — Send partner request {email}
+- `GET /partners` — List partners with statuses
+- `PUT /partners/{id}/accept` — Accept partner request
+- `DELETE /partners/{id}` — Remove partner
+
+**Feed:**
+- `GET /feed` — Partner activity feed (recent completions from partners)
+
+**Photo upload:**
+- `POST /photos/presign` — Get S3 pre-signed upload URL
+- Photos uploaded directly to S3, then referenced in completion
+
+**Rate limiting:** 100 req/min per user via API Gateway throttling.
+**Pagination:** Cursor-based using `?cursor={lastKey}&limit=20`.',
+    'REST API with Cognito JWT auth. CRUD for Habits, Completions (with photo upload via S3 pre-signed URLs), Partners (invite/accept flow), and activity Feed. Rate limited at 100 RPM.',
+    'TODO: Add WebSocket endpoint for real-time partner activity updates.'
 );
 
--- 5: ComfyUI Workflows
+-- 5: Mobile App Design
 INSERT INTO sections (id, project_id, slug, title, section_type, sort_order, status, tags, content, summary, notes)
 VALUES (
     'b0000000-0000-0000-0000-000000000006',
     'a0000000-0000-0000-0000-000000000001',
-    'comfyui-workflows',
-    'ComfyUI Workflows',
-    'tech_spec',
+    'mobile-app',
+    'Mobile App Design',
+    'ui_design',
     5,
     'draft',
-    ARRAY['ai'],
-    'ComfyUI integration provides advanced image generation capabilities beyond basic text-to-image. ContentForge packages common operations as reusable ComfyUI workflow templates.
+    ARRAY['mvp', 'frontend'],
+    'React Native app with four primary screens:
 
-**Supported workflow types:**
+**1. Today** — Daily habit checklist with one-tap completion.
+- Habit cards with title, streak count, and completion button
+- Long-press to attach photo and note
+- Streak calendar ribbon at top showing last 7 days
+- Pull-to-refresh for partner nudge notifications
 
-1. **Style Transfer** — Apply artistic style from reference image to generated content.
-   - Input: source image + style reference + strength (0.0-1.0)
-   - Models: IP-Adapter + SDXL
-   - Output: styled image at source resolution
+**2. Calendar** — Monthly grid view per habit.
+- Color-coded completion dots (green = done, gray = missed, yellow = rest day)
+- Tap any day to see completion details and photo
+- Swipe between months
+- Streak statistics below calendar (current, best, total completions)
 
-2. **Inpainting** — Modify specific regions of existing images.
-   - Input: source image + mask + text prompt
-   - Models: SDXL Inpainting checkpoint
-   - Output: composited image
+**3. Partners** — Accountability partner management.
+- Partner list with their today status (completed/pending)
+- "Nudge" button sends push notification to partner
+- Activity feed showing recent partner completions with photos
+- Invite flow via email or share link
 
-3. **Upscaling** — Enhance resolution of generated images.
-   - Input: low-res image + scale factor (2x/4x)
-   - Models: Real-ESRGAN or SwinIR
-   - Output: high-res image
+**4. Profile** — Settings and statistics.
+- Account settings (name, email, timezone, notification preferences)
+- Overall statistics (habits active, total completions, longest streak)
+- Export data as CSV
+- Subscription management (free tier vs premium)
 
-4. **Batch Variations** — Generate multiple variations from single prompt.
-   - Input: prompt + count + seed range
-   - Output: N images with sequential seeds
-
-**Integration pattern:**
-- ComfyUI runs as a sidecar container with GPU access
-- ContentForge sends workflow JSON via ComfyUI REST API
-- Results polled via WebSocket connection
-- Workflow templates stored in `workflows` table as JSONB',
-    'ComfyUI sidecar provides advanced image ops: style transfer (IP-Adapter), inpainting (SDXL), upscaling (Real-ESRGAN), and batch variations. Integrated via REST API with WebSocket result polling.',
+**Design system:**
+- Colors: Warm palette — primary #FF6B35 (orange), bg #FAFAF8, surface #FFFFFF
+- Typography: SF Pro (iOS) / Roboto (Android), system defaults
+- Animations: Lottie for streak celebrations, spring animations for card interactions
+- Offline: all screens work offline, sync indicator in nav bar',
+    'Four-screen React Native app: Today (checklist + photo), Calendar (monthly grid + stats), Partners (accountability + nudges), Profile (settings + export). Warm color palette with offline-first architecture.',
     ''
 );
 
--- 6: API Spec
+-- 6: Push Notifications
 INSERT INTO sections (id, project_id, slug, title, section_type, sort_order, status, tags, content, summary, notes)
 VALUES (
     'b0000000-0000-0000-0000-000000000007',
     'a0000000-0000-0000-0000-000000000001',
-    'api-spec',
-    'API Specification',
-    'api_spec',
+    'push-notifications',
+    'Push Notifications',
+    'tech_spec',
     6,
-    'in_progress',
-    ARRAY['mvp', 'frontend'],
-    'RESTful API built with FastAPI. All endpoints return JSON. Authentication via Bearer token (JWT).
+    'draft',
+    ARRAY['mvp'],
+    'Push notification system built on Amazon SNS with scheduled Lambda triggers.
 
-**Base URL:** `https://api.contentforge.local/v1`
+**Notification types:**
 
-**Jobs:**
-- `POST /jobs` — Create generation job {workflow_id, input_params, priority}
-- `GET /jobs` — List jobs with filters {status, project_id, created_after, limit, offset}
-- `GET /jobs/{id}` — Job details including step progress
-- `DELETE /jobs/{id}` — Cancel running job (sends cancel signal to Temporal)
-- `GET /jobs/{id}/assets` — List output assets for job
+1. **Habit reminder** — Sent at user''s configured reminder time for each habit.
+   - Trigger: EventBridge scheduled rule → Lambda scans due reminders
+   - Template: "Time for {habit_name}! You''re on a {streak} day streak"
+   - Frequency: respects habit schedule (daily, weekdays, custom)
 
-**Assets:**
-- `GET /assets/{id}` — Asset metadata + signed download URL
-- `GET /assets/{id}/download` — Direct file download (redirects to MinIO pre-signed URL)
-- `POST /assets/upload` — Upload source asset (multipart/form-data)
-- `DELETE /assets/{id}` — Soft delete asset
+2. **Partner nudge** — Manual nudge from accountability partner.
+   - Trigger: API call from partner → Lambda → SNS
+   - Template: "{partner_name} is checking in — have you done {habit_name} today?"
+   - Rate limit: max 2 nudges per partner per day
 
-**Workflows:**
-- `GET /workflows` — List available workflow templates
-- `POST /workflows` — Create custom workflow {name, steps}
-- `GET /workflows/{id}` — Workflow details with step definitions
-- `PUT /workflows/{id}` — Update workflow (creates new version)
+3. **Streak at risk** — Sent 2 hours before midnight if habit not completed.
+   - Trigger: EventBridge rule at 10 PM user''s timezone → Lambda checks
+   - Template: "Don''t break your {streak}-day streak on {habit_name}!"
+   - Only sent if user hasn''t completed today
 
-**Projects:**
-- `GET /projects` — List projects for current user
-- `POST /projects` — Create project {name, description}
-- `GET /projects/{id}/stats` — Usage statistics and cost breakdown
+4. **Streak milestone** — Celebration at 7, 30, 100, 365 days.
+   - Trigger: completion Lambda checks streak milestones
+   - Template: "{streak} days of {habit_name}! You''re unstoppable."
 
-**Rate limiting:** 100 req/min per user, 1000 req/min global. 429 response with Retry-After header.
-
-**Pagination:** Cursor-based using `?after={last_id}&limit=50`. Response includes `has_more` boolean.',
-    'FastAPI REST API with JWT auth. CRUD for Jobs (create, list, cancel), Assets (metadata, download, upload), Workflows (template management), and Projects (with cost stats). Rate limited at 100 RPM per user.',
-    'TODO: Add WebSocket endpoint for real-time job progress updates.
-TODO: Define error response schema (error code, message, details).'
+**Infrastructure:**
+- SNS platform applications for APNs (iOS) and FCM (Android)
+- Device token stored in DynamoDB user profile
+- Notification preferences: per-habit toggle, quiet hours, partner nudge opt-out
+- Delivery tracking via SNS delivery logs → CloudWatch → PostgreSQL analytics',
+    'Four notification types via SNS: habit reminders, partner nudges, streak-at-risk warnings, and milestone celebrations. EventBridge + Lambda triggers respect user timezone and preferences.',
+    ''
 );
 
--- 7: UI Design
+-- 7: Authentication
 INSERT INTO sections (id, project_id, slug, title, section_type, sort_order, status, tags, content, summary, notes)
 VALUES (
     'b0000000-0000-0000-0000-000000000008',
     'a0000000-0000-0000-0000-000000000001',
-    'ui-design',
-    'UI Design',
-    'ui_design',
+    'auth',
+    'Authentication & Security',
+    'security',
     7,
-    'draft',
-    ARRAY['frontend'],
-    'Next.js application with three primary views:
+    'approved',
+    ARRAY['mvp', 'backend'],
+    'Authentication and security model built on Amazon Cognito.
 
-**1. Dashboard** — Overview of recent jobs, active workflows, and cost summary.
-- Job status cards with real-time progress indicators
-- Cost-per-day chart (last 30 days)
-- Quick-launch buttons for favorite workflows
+**Authentication:**
+- Email/password sign-up with verification
+- Social login: Apple Sign-In (required for App Store) and Google Sign-In
+- Cognito User Pool with custom attributes (timezone, subscription_tier)
+- JWT tokens: 1-hour access token, 30-day refresh token
+- Expo SecureStore for token persistence on device
 
-**2. Job Detail** — Full job view with step-by-step progress.
-- Timeline visualization of pipeline stages
-- Side-by-side input/output comparison for each step
-- Asset preview gallery with zoom and download
-- Cost breakdown per step (tokens, GPU seconds, API calls)
+**Authorization:**
+- All API endpoints validate Cognito JWT via API Gateway authorizer
+- Users can only access their own data (userId extracted from JWT sub claim)
+- Partner data accessible only for accepted partnerships
+- Photo URLs are pre-signed with 1-hour expiry
 
-**3. Workflow Editor** — Visual builder for generation pipelines.
-- Drag-and-drop step arrangement
-- Per-step parameter configuration panel
-- Live preview with test inputs
-- Version history with diff view
+**Data protection:**
+- S3 server-side encryption (AES-256) for all photos
+- DynamoDB encryption at rest (AWS managed keys)
+- TLS 1.3 for all API communication
+- No PII stored beyond email, name, and photos
+- GDPR: account deletion removes all data within 24 hours (Lambda cleanup job)
 
-**Design system:**
-- Colors: Dark mode default (bg #0a0a0a, surface #1a1a1a, accent #7c3aed violet)
-- Typography: Inter for UI, Fira Code for technical content
-- Components: shadcn/ui with custom theme tokens
-- Responsive: Desktop-first, minimum 1280px viewport
-- Accessibility: WCAG 2.1 AA compliance target
-
-**State management:**
-- TanStack Query for server state (jobs, assets, workflows)
-- Zustand for client state (filters, preferences, UI state)
-- Optimistic updates for job creation and workflow saves',
-    'Next.js dashboard with three views: Dashboard (job overview + costs), Job Detail (step progress + asset preview), Workflow Editor (visual pipeline builder). Dark mode, shadcn/ui components, TanStack Query state management.',
-    'TODO: Design mobile-responsive layout for job monitoring (tablet minimum).
-TODO: Add keyboard shortcuts for power users (j/k navigation, Cmd+Enter to launch).'
+**Mobile security:**
+- Certificate pinning for API domain
+- Biometric unlock option (Face ID / fingerprint) via expo-local-authentication
+- App lock after 5 minutes of inactivity (configurable)',
+    'Cognito auth with email + Apple/Google social login. JWT-based API authorization. S3 AES-256 encryption for photos, TLS 1.3, certificate pinning. GDPR-compliant account deletion within 24 hours.',
+    ''
 );
 
--- 8: Deployment
+-- 8: AWS Deployment
 INSERT INTO sections (id, project_id, slug, title, section_type, sort_order, status, tags, content, summary, notes)
 VALUES (
     'b0000000-0000-0000-0000-000000000009',
     'a0000000-0000-0000-0000-000000000001',
     'deployment',
-    'Deployment Strategy',
+    'AWS Deployment',
     'deployment',
     8,
     'approved',
-    ARRAY['infra'],
-    'ContentForge deploys as a set of Docker containers orchestrated by k3s in production and Docker Compose for development.
+    ARRAY['backend'],
+    'Fully serverless AWS deployment managed by CDK (TypeScript).
 
-**Container topology:**
-- `api` — FastAPI application server (2 replicas, 2GB RAM each)
-- `worker` — Celery workers for async tasks (2 replicas, 1GB RAM each)
-- `temporal` — Temporal server + PostgreSQL persistence (single node)
-- `temporal-worker` — Temporal workflow workers with GPU access (1 per GPU node)
-- `comfyui` — ComfyUI server with GPU passthrough (1 per GPU node)
-- `postgres` — PostgreSQL 16 with persistent volume (8GB RAM)
-- `redis` — Redis 7 for caching and Celery broker (1GB RAM)
-- `minio` — S3-compatible object storage (persistent volume)
-- `nginx` — Reverse proxy with SSL termination
+**Infrastructure stack:**
+- API Gateway (HTTP API) with custom domain api.snaphabit.app
+- Lambda functions (Node.js 20, ARM64, 256MB memory, 30s timeout)
+- DynamoDB table with on-demand capacity (auto-scales to zero)
+- S3 bucket with lifecycle rules and CloudFront CDN for photo delivery
+- Cognito User Pool with hosted UI for social login callbacks
+- RDS PostgreSQL (db.t4g.micro, single-AZ for dev, multi-AZ for prod)
+- EventBridge rules for scheduled notification triggers
+- CloudWatch dashboards and alarms
 
-**Deployment workflow:**
-1. Push to main → GitHub Actions builds Docker images
-2. Images pushed to private registry (Harbor)
-3. ArgoCD detects new images, updates k3s manifests
-4. Rolling update with health check gates
-5. Slack notification on success/failure
+**Environments:**
+- dev: single AWS account, minimal resources, deployed on every push to main
+- staging: mirrors prod config, used for QA and load testing
+- prod: multi-AZ RDS, CloudFront, Route 53, WAF on API Gateway
 
-**Environment management:**
-- dev: Docker Compose on local machine
-- staging: k3s single-node with reduced resources
-- production: k3s multi-node with GPU scheduling
+**CI/CD pipeline (GitHub Actions):**
+1. Push to main → run unit tests + lint
+2. CDK diff → deploy to dev
+3. Manual approval → deploy to staging
+4. Load test passes → deploy to prod
+5. Expo EAS build → TestFlight (iOS) + Play Store internal track (Android)
 
-**Backup strategy:**
-- PostgreSQL: pg_dump daily to MinIO bucket (7-day retention)
-- Assets: MinIO bucket replication to offsite NAS
-- Workflows: exported as JSON, committed to git repo',
-    'Docker/k3s deployment with 9 containers. CI/CD via GitHub Actions → Harbor → ArgoCD rolling updates. Three environments (dev/staging/prod). Daily PostgreSQL backups to MinIO with 7-day retention.',
+**Cost estimate (1000 MAU):**
+- Lambda: ~$2/month (500K invocations)
+- DynamoDB: ~$5/month (on-demand)
+- S3 + CloudFront: ~$3/month (10GB storage)
+- RDS: ~$15/month (db.t4g.micro)
+- Cognito: free tier (50K MAU)
+- Total: ~$25/month',
+    'CDK-managed serverless stack: API Gateway, Lambda, DynamoDB (on-demand), S3 + CloudFront, Cognito, RDS PostgreSQL. Three environments with GitHub Actions CI/CD. ~$25/month at 1000 MAU.',
     ''
 );
 
--- 9: Security
+-- 9: Analytics
 INSERT INTO sections (id, project_id, slug, title, section_type, sort_order, status, tags, content, summary, notes)
 VALUES (
     'b0000000-0000-0000-0000-000000000010',
     'a0000000-0000-0000-0000-000000000001',
-    'security',
-    'Security Model',
-    'security',
+    'analytics',
+    'Analytics & Monitoring',
+    'tech_spec',
     9,
     'draft',
-    ARRAY['infra'],
-    'Security model for ContentForge covers authentication, authorization, API security, and data protection.
+    ARRAY['backend'],
+    'Analytics pipeline and operational monitoring for SnapHabit.
 
-**Authentication:**
-- JWT tokens issued by API server (RS256 signing)
-- Token expiry: 1 hour access, 7 day refresh
-- SSO integration via OIDC (Google Workspace planned)
+**Product analytics:**
+- Mixpanel for user behavior tracking (habit creation, completion patterns, partner engagement)
+- Key metrics: DAU/MAU ratio, 7-day retention, average streak length, completion rate by habit type
+- Funnel: onboard → create first habit → first completion → 7-day streak → invite partner
+- A/B testing via LaunchDarkly feature flags (notification copy, onboarding flow)
 
-**Authorization:**
-- Role-based: admin (full access), editor (create/edit jobs and workflows), viewer (read-only)
-- Project-scoped: users belong to projects, can only access their project resources
-- API key scoping: per-project keys with configurable permissions
+**Operational monitoring:**
+- CloudWatch dashboards: Lambda duration/errors, API Gateway 4xx/5xx, DynamoDB consumed capacity
+- CloudWatch Alarms → SNS → PagerDuty for P1 issues (API error rate > 5%, Lambda cold starts > 2s)
+- X-Ray tracing on Lambda for request path analysis
+- DynamoDB contributor insights for hot partition detection
 
-**API Security:**
-- Rate limiting per user and global (Redis-backed)
-- Request size limits: 10MB for uploads, 1MB for JSON bodies
-- CORS: restricted to frontend domain
-- Input validation: Pydantic models on all endpoints
+**Analytics aggregation (PostgreSQL):**
+- Lambda streams DynamoDB changes to PostgreSQL via DynamoDB Streams → Lambda → RDS
+- Daily aggregation job: completion counts, streak distributions, cohort retention
+- Metabase dashboard connected to RDS for business intelligence
+- Weekly email report to stakeholders with key metric trends
 
-**Data Protection:**
-- API keys encrypted at rest (Fernet symmetric encryption)
-- Database connections via SSL in production
-- Asset URLs: pre-signed with 1-hour expiry
-- No PII stored beyond email and name
-- Audit log for all write operations (append-only table)
-
-**Infrastructure:**
-- Network policies: API only accessible via nginx ingress
-- Secrets management: Kubernetes secrets (production), .env files (dev)
-- Container scanning: Trivy in CI pipeline
-- Dependency scanning: Dependabot alerts enabled',
-    'JWT auth (RS256) with role-based access (admin/editor/viewer). Project-scoped authorization, rate limiting, encrypted API keys. Production uses K8s secrets, SSL, and Trivy container scanning.',
-    'TODO: Implement OIDC SSO integration with Google Workspace.
-TODO: Add IP allowlisting for API key access.'
+**Privacy:**
+- Analytics events contain no PII (anonymized user IDs)
+- Mixpanel data retention: 12 months
+- Users can opt out of analytics tracking in app settings',
+    'Mixpanel for product analytics, CloudWatch + X-Ray for ops monitoring. DynamoDB Streams pipeline to PostgreSQL for aggregation. Metabase BI dashboards. Privacy-first with anonymized tracking.',
+    ''
 );
 
--- 10: Legal
+-- 10: Testing Strategy
 INSERT INTO sections (id, project_id, slug, title, section_type, sort_order, status, tags, content, summary, notes)
 VALUES (
     'b0000000-0000-0000-0000-000000000011',
     'a0000000-0000-0000-0000-000000000001',
-    'legal',
-    'Legal & Compliance',
-    'general',
+    'testing-strategy',
+    'Testing Strategy',
+    'testing',
     10,
-    'draft',
-    ARRAY[]::TEXT[],
-    'Legal considerations for AI-generated content platform.
+    'in_progress',
+    ARRAY['core'],
+    'Testing pyramid for SnapHabit covering mobile and backend.
 
-**Content ownership:**
-- Generated content belongs to the user/organization that created the job
-- Users must have rights to any uploaded source material (style references, inpainting sources)
-- Platform retains no ownership claims on generated content
+**Unit tests (80% coverage target):**
+- Mobile: Jest + React Native Testing Library for component logic
+- Backend: Jest for Lambda handlers with mocked AWS SDK (aws-sdk-client-mock)
+- Run on every PR via GitHub Actions
 
-**AI model licensing:**
-- OpenAI: commercial use permitted under API ToS
-- Stable Diffusion: CreativeML Open RAIL-M license — permits commercial use with attribution
-- ComfyUI: GPL-3.0 — server-side use, no distribution of modified code required
-- Real-ESRGAN: BSD-3-Clause — permissive commercial use
+**Integration tests:**
+- Backend: LocalStack for AWS service mocking (DynamoDB, S3, Cognito)
+- API contract tests: Pact for consumer-driven contracts between mobile and API
+- Database: test DynamoDB access patterns with real table (on-demand, dev account)
 
-**Data retention:**
-- Generated assets: retained until user deletes or project archived (max 1 year inactive)
-- Job metadata: retained for 2 years for billing and audit purposes
-- User data: deleted within 30 days of account closure (GDPR compliance)
+**End-to-end tests:**
+- Detox for React Native E2E on iOS simulator and Android emulator
+- Critical flows: sign up → create habit → complete with photo → verify streak
+- Run nightly on CI, results posted to Slack
 
-**Content moderation:**
-- NSFW filter on all generated images (configurable per-project for licensed adult content)
-- Prompt injection detection on text generation inputs
-- Generated content hash stored for provenance tracking
+**Load testing:**
+- k6 scripts simulating 1000 concurrent users
+- Target: p99 API latency < 500ms, zero DynamoDB throttling
+- Run before every production deployment in staging environment
 
-**Terms of Service:**
-- Users responsible for ensuring generated content does not infringe third-party IP
-- Platform provides tools, not legal guarantees on output originality
-- Indemnification clause for API misuse',
-    'Content ownership belongs to users. AI model licenses permit commercial use (OpenAI ToS, RAIL-M, GPL-3.0, BSD-3). GDPR-compliant data retention. NSFW filtering and provenance tracking included.',
+**Manual QA:**
+- TestFlight + Play Store internal track for beta testing
+- Checklist: offline mode, timezone edge cases, photo upload with poor connectivity
+- Accessibility audit with VoiceOver (iOS) and TalkBack (Android)',
+    'Testing pyramid: Jest unit tests (80% coverage), LocalStack integration tests, Detox E2E for mobile, k6 load tests (p99 < 500ms). Pact contract testing between mobile and API.',
     ''
 );
 
--- 11: Risks
+-- 11: Timeline
 INSERT INTO sections (id, project_id, slug, title, section_type, sort_order, status, tags, content, summary, notes)
 VALUES (
     'b0000000-0000-0000-0000-000000000012',
     'a0000000-0000-0000-0000-000000000001',
-    'risks',
-    'Risks & Mitigations',
-    'general',
-    11,
-    'draft',
-    ARRAY[]::TEXT[],
-    'Key risks identified for ContentForge and their mitigation strategies.
-
-**Technical risks:**
-
-1. **GPU availability** — Cloud GPU instances may be unavailable during high demand.
-   - Mitigation: Multi-provider setup (RunPod + Lambda Labs), preemptible instance fallback.
-   - Impact: Medium. Degraded throughput, not outage.
-
-2. **Model quality regression** — OpenAI model updates may change output quality.
-   - Mitigation: Pin model versions (gpt-4-0613), A/B test before upgrading.
-   - Impact: Medium. Affects output consistency.
-
-3. **Storage growth** — Generated assets accumulate rapidly (avg 5MB per image).
-   - Mitigation: Lifecycle policies (compress after 30 days, archive after 90, delete after 365).
-   - Impact: Low with policies in place.
-
-**Operational risks:**
-
-4. **API cost overrun** — Unbounded generation could exceed budget.
-   - Mitigation: Per-user budget limits, per-project spending caps, daily cost alerts.
-   - Impact: High if unmitigated.
-
-5. **Single point of failure** — Temporal server downtime blocks all pipelines.
-   - Mitigation: Temporal cluster mode in production, job queue persists through restart.
-   - Impact: High. No workaround for orchestration failure.
-
-**Business risks:**
-
-6. **AI regulatory changes** — EU AI Act may impose new requirements.
-   - Mitigation: Content provenance tracking already implemented, adaptable moderation.
-   - Impact: Unknown, monitored quarterly.',
-    'Six key risks: GPU availability (multi-provider), model quality regression (version pinning), storage growth (lifecycle policies), API cost overrun (budget limits), Temporal SPOF (cluster mode), AI regulation (provenance tracking).',
-    ''
-);
-
--- 12: Timeline
-INSERT INTO sections (id, project_id, slug, title, section_type, sort_order, status, tags, content, summary, notes)
-VALUES (
-    'b0000000-0000-0000-0000-000000000013',
-    'a0000000-0000-0000-0000-000000000001',
     'timeline',
     'Implementation Timeline',
     'timeline',
-    12,
+    11,
     'in_progress',
     ARRAY['mvp'],
-    'Phased implementation plan for ContentForge MVP and beyond.
+    'Phased implementation plan for SnapHabit MVP and beyond.
 
 **Phase 1 — Foundation (Weeks 1-4):**
-- Database schema and migrations (data-model)
-- FastAPI skeleton with auth middleware
-- Basic job creation and listing endpoints
-- Docker Compose development environment
-- CI/CD pipeline setup (GitHub Actions → Harbor)
+- CDK infrastructure setup (DynamoDB, S3, Cognito, API Gateway)
+- Lambda CRUD handlers for habits and completions
+- React Native project setup with Expo, navigation, and offline DB
+- Authentication flow (sign up, login, social auth)
+- CI/CD pipeline for both backend and mobile
 
-**Phase 2 — Pipeline Core (Weeks 5-8):**
-- Temporal workflow engine integration
-- Text generation pipeline (GPT-4)
-- Image generation pipeline (Stable Diffusion)
-- Asset storage and retrieval (MinIO)
-- Job progress tracking and notifications
+**Phase 2 — Core Features (Weeks 5-8):**
+- Habit creation and completion with photo upload
+- Streak calculation engine and calendar visualization
+- Push notification system (reminders + streak-at-risk)
+- Offline-first sync between WatermelonDB and DynamoDB
+- Basic analytics instrumentation (Mixpanel + CloudWatch)
 
-**Phase 3 — UI & Polish (Weeks 9-12):**
-- Next.js dashboard implementation
-- Job detail view with progress timeline
-- Workflow editor (basic — sequential steps only)
-- Cost tracking and budget alerts
-- User management and RBAC
+**Phase 3 — Social & Polish (Weeks 9-12):**
+- Accountability partner system (invite, accept, nudge)
+- Partner activity feed
+- Streak celebration animations (Lottie)
+- Onboarding flow with habit templates
+- Beta testing via TestFlight and Play Store internal track
 
-**Phase 4 — Advanced Features (Weeks 13-16):**
-- ComfyUI integration (style transfer, inpainting)
-- Batch operations and scheduling
-- Advanced workflow editor (branching, conditions)
-- Performance optimization and caching
-- Load testing and capacity planning
+**Phase 4 — Launch Prep (Weeks 13-14):**
+- Load testing and performance optimization
+- App Store and Play Store submission
+- Landing page and marketing site
+- Analytics dashboard setup (Metabase)
 
-**MVP definition:** Phases 1-3 complete. Users can create text+image generation jobs via API and UI, with basic workflow templates, cost tracking, and role-based access.
+**MVP definition:** Phases 1-3 complete. Users can create habits, log completions with photos, track streaks, and share with accountability partners.
 
 **Post-MVP backlog:**
-- Video generation support
-- Plugin/webhook system
-- Multi-tenant SaaS mode
-- Mobile companion app',
-    'Four-phase plan: Foundation (weeks 1-4, schema + API + CI), Pipeline Core (5-8, Temporal + AI models + assets), UI & Polish (9-12, dashboard + workflows + RBAC), Advanced (13-16, ComfyUI + batch + optimization). MVP = phases 1-3.',
-    'TODO: Re-evaluate timeline after tech-stack decision on Temporal vs n8n.
-Blocked on: hardware procurement for second A100 node.'
+- Premium subscription tier (unlimited habits, advanced stats, custom themes)
+- Habit groups and challenges
+- Widget support (iOS WidgetKit, Android Glance)
+- Apple Watch companion app',
+    'Four-phase plan: Foundation (weeks 1-4, AWS + RN setup), Core Features (5-8, habits + streaks + notifications), Social & Polish (9-12, partners + onboarding), Launch Prep (13-14). MVP = phases 1-3.',
+    'Blocked on: Apple Developer Program enrollment (in progress).'
 );
 
--- Dependencies (matching PRD §8.2 graph)
--- tech-stack → hardware: references
+-- Dependencies (12 total)
+-- tech-stack → data-model
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000003',  -- tech-stack
-    'b0000000-0000-0000-0000-000000000002',  -- hardware
-    'references',
-    'Platform capabilities constrain tech choices'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000003', 'implements', 'DynamoDB schema decisions from tech stack');
 
--- data-model → tech-stack: implements
+-- tech-stack → api-spec
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000004',  -- data-model
-    'b0000000-0000-0000-0000-000000000003',  -- tech-stack
-    'implements',
-    'ORM and migration patterns from tech-stack'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000003', 'implements', 'API Gateway + Lambda patterns from tech stack');
 
--- pipeline → tech-stack: implements
+-- data-model → api-spec
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000005',  -- pipeline
-    'b0000000-0000-0000-0000-000000000003',  -- tech-stack
-    'implements',
-    'Workflow engine and AI model choices from tech-stack'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000004', 'references', 'API endpoints mirror DynamoDB access patterns');
 
--- pipeline → hardware: references
+-- api-spec → mobile-app
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000005',  -- pipeline
-    'b0000000-0000-0000-0000-000000000002',  -- hardware
-    'references',
-    'GPU resources and throughput targets from hardware'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000006', 'b0000000-0000-0000-0000-000000000005', 'implements', 'Mobile app consumes the REST API');
 
--- pipeline → data-model: implements
+-- tech-stack → auth
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000005',  -- pipeline
-    'b0000000-0000-0000-0000-000000000004',  -- data-model
-    'implements',
-    'Job and Asset entities from data model'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000008', 'b0000000-0000-0000-0000-000000000003', 'implements', 'Cognito configuration from tech stack decisions');
 
--- comfyui-workflows → pipeline: references
+-- api-spec → push-notifications
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000006',  -- comfyui-workflows
-    'b0000000-0000-0000-0000-000000000005',  -- pipeline
-    'references',
-    'Integrates as pipeline step type'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000007', 'b0000000-0000-0000-0000-000000000005', 'references', 'Nudge endpoint triggers push notifications');
 
--- api-spec → data-model: references
+-- tech-stack → deployment
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000007',  -- api-spec
-    'b0000000-0000-0000-0000-000000000004',  -- data-model
-    'references',
-    'CRUD endpoints mirror data model entities'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000009', 'b0000000-0000-0000-0000-000000000003', 'implements', 'CDK stack mirrors tech stack choices');
 
--- api-spec → pipeline: references
+-- deployment → analytics
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000007',  -- api-spec
-    'b0000000-0000-0000-0000-000000000005',  -- pipeline
-    'references',
-    'Job creation triggers pipeline execution'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000010', 'b0000000-0000-0000-0000-000000000009', 'references', 'CloudWatch and RDS from deployment stack');
 
--- ui-design → api-spec: implements
+-- data-model → timeline
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000008',  -- ui-design
-    'b0000000-0000-0000-0000-000000000007',  -- api-spec
-    'implements',
-    'Consumes REST endpoints defined in API spec'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000004', 'references', 'Phase 1 scope includes data model implementation');
 
--- deployment → tech-stack: implements
+-- mobile-app → timeline
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000009',  -- deployment
-    'b0000000-0000-0000-0000-000000000003',  -- tech-stack
-    'implements',
-    'Docker per component, split by node type'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000006', 'references', 'Phase 2-3 scope includes mobile app features');
 
--- deployment → hardware: references
+-- user-research → mobile-app (personas inform UX decisions)
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000009',  -- deployment
-    'b0000000-0000-0000-0000-000000000002',  -- hardware
-    'references',
-    'Container topology matches hardware nodes'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000006', 'b0000000-0000-0000-0000-000000000002', 'references', 'Persona needs drive screen design and feature priorities');
 
--- timeline → data-model: references
+-- api-spec → testing-strategy (test plan validates API contracts)
 INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000013',  -- timeline
-    'b0000000-0000-0000-0000-000000000004',  -- data-model
-    'references',
-    'Scopes Phase 1 foundation work'
-);
-
--- timeline → pipeline: references
-INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000013',  -- timeline
-    'b0000000-0000-0000-0000-000000000005',  -- pipeline
-    'references',
-    'Scopes Phase 2 pipeline work'
-);
-
--- timeline → ui-design: references
-INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000013',  -- timeline
-    'b0000000-0000-0000-0000-000000000008',  -- ui-design
-    'references',
-    'Scopes Phase 3 UI work'
-);
-
--- timeline → deployment: references
-INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
-VALUES (
-    'a0000000-0000-0000-0000-000000000001',
-    'b0000000-0000-0000-0000-000000000013',  -- timeline
-    'b0000000-0000-0000-0000-000000000009',  -- deployment
-    'references',
-    'Scopes deployment across all phases'
-);
+VALUES ('a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000005', 'references', 'Pact contract tests and k6 load tests target API endpoints');

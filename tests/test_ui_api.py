@@ -16,10 +16,10 @@ class TestUIEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
-        assert any(p["slug"] == "contentforge" for p in data)
+        assert any(p["slug"] == "snaphabit" for p in data)
 
     async def test_project_detail(self, ui_client):
-        resp = await ui_client.get("/api/projects/contentforge")
+        resp = await ui_client.get("/api/projects/snaphabit")
         assert resp.status_code == 200
         data = resp.json()
         assert "project" in data
@@ -34,7 +34,7 @@ class TestUIEndpoints:
         assert resp.status_code == 404
 
     async def test_section_detail(self, ui_client):
-        resp = await ui_client.get("/api/projects/contentforge/sections/data-model")
+        resp = await ui_client.get("/api/projects/snaphabit/sections/data-model")
         assert resp.status_code == 200
         data = resp.json()
         assert "section" in data
@@ -44,14 +44,14 @@ class TestUIEndpoints:
         assert "revisions" in data
 
     async def test_section_not_found(self, ui_client):
-        resp = await ui_client.get("/api/projects/contentforge/sections/nope")
+        resp = await ui_client.get("/api/projects/snaphabit/sections/nope")
         assert resp.status_code == 404
 
     async def test_export(self, ui_client):
-        resp = await ui_client.get("/api/projects/contentforge/export")
+        resp = await ui_client.get("/api/projects/snaphabit/export")
         assert resp.status_code == 200
         assert "text/plain" in resp.headers["content-type"]
-        assert "# ContentForge" in resp.text
+        assert "# SnapHabit" in resp.text
 
     async def test_health(self, ui_client):
         resp = await ui_client.get("/health")
@@ -61,7 +61,7 @@ class TestUIEndpoints:
         assert data["db"] == "connected"
 
     async def test_global_comments(self, ui_client):
-        resp = await ui_client.get("/api/projects/contentforge/comments")
+        resp = await ui_client.get("/api/projects/snaphabit/comments")
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
@@ -71,7 +71,7 @@ class TestUIEndpoints:
         assert resp.status_code == 404
 
     async def test_section_includes_comments(self, ui_client):
-        resp = await ui_client.get("/api/projects/contentforge/sections/vision-and-overview")
+        resp = await ui_client.get("/api/projects/snaphabit/sections/overview")
         assert resp.status_code == 200
         data = resp.json()
         assert "comments" in data
@@ -83,11 +83,11 @@ class TestInlineComments:
 
     async def _create_comment(self, ui_client):
         resp = await ui_client.post(
-            "/api/projects/contentforge/sections/vision-and-overview/comments",
+            "/api/projects/snaphabit/sections/overview/comments",
             json={
-                "anchor_text": "self-hosted AI content factory",
-                "anchor_prefix": "ContentForge is a **",
-                "anchor_suffix": "** — an end-to-end",
+                "anchor_text": "mobile habit-tracking application",
+                "anchor_prefix": "SnapHabit is a **",
+                "anchor_suffix": "** that combines",
                 "body": "Clarify target audience",
             },
         )
@@ -96,14 +96,14 @@ class TestInlineComments:
 
     async def test_create_comment(self, ui_client):
         data = await self._create_comment(ui_client)
-        assert data["anchor_text"] == "self-hosted AI content factory"
+        assert data["anchor_text"] == "mobile habit-tracking application"
         assert data["body"] == "Clarify target audience"
         assert data["resolved"] is False
         assert "id" in data
 
     async def test_comment_appears_in_section(self, ui_client):
         created = await self._create_comment(ui_client)
-        resp = await ui_client.get("/api/projects/contentforge/sections/vision-and-overview")
+        resp = await ui_client.get("/api/projects/snaphabit/sections/overview")
         data = resp.json()
         ids = [c["id"] for c in data["comments"]]
         assert created["id"] in ids
@@ -111,7 +111,7 @@ class TestInlineComments:
     async def test_resolve_comment(self, ui_client):
         created = await self._create_comment(ui_client)
         resp = await ui_client.post(
-            f"/api/projects/contentforge/sections/vision-and-overview/comments/{created['id']}/resolve"
+            f"/api/projects/snaphabit/sections/overview/comments/{created['id']}/resolve"
         )
         assert resp.status_code == 200
         assert resp.json()["resolved"] is True
@@ -119,8 +119,8 @@ class TestInlineComments:
     async def test_resolve_then_reopen(self, ui_client):
         created = await self._create_comment(ui_client)
         cid = created["id"]
-        await ui_client.post(f"/api/projects/contentforge/sections/vision-and-overview/comments/{cid}/resolve")
-        resp = await ui_client.post(f"/api/projects/contentforge/sections/vision-and-overview/comments/{cid}/resolve")
+        await ui_client.post(f"/api/projects/snaphabit/sections/overview/comments/{cid}/resolve")
+        resp = await ui_client.post(f"/api/projects/snaphabit/sections/overview/comments/{cid}/resolve")
         assert resp.status_code == 200
         assert resp.json()["resolved"] is False
 
@@ -128,7 +128,7 @@ class TestInlineComments:
         created = await self._create_comment(ui_client)
         resp = await ui_client.request(
             "DELETE",
-            f"/api/projects/contentforge/sections/vision-and-overview/comments/{created['id']}",
+            f"/api/projects/snaphabit/sections/overview/comments/{created['id']}",
         )
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
@@ -136,13 +136,13 @@ class TestInlineComments:
     async def test_delete_nonexistent_comment(self, ui_client):
         resp = await ui_client.request(
             "DELETE",
-            "/api/projects/contentforge/sections/vision-and-overview/comments/00000000-0000-0000-0000-000000000000",
+            "/api/projects/snaphabit/sections/overview/comments/00000000-0000-0000-0000-000000000000",
         )
         assert resp.status_code == 404
 
     async def test_comment_appears_in_global(self, ui_client):
         created = await self._create_comment(ui_client)
-        resp = await ui_client.get("/api/projects/contentforge/comments")
+        resp = await ui_client.get("/api/projects/snaphabit/comments")
         data = resp.json()
         ids = [c["id"] for c in data]
         assert created["id"] in ids
@@ -153,7 +153,7 @@ class TestInlineComments:
 
     async def test_create_comment_section_not_found(self, ui_client):
         resp = await ui_client.post(
-            "/api/projects/contentforge/sections/nonexistent/comments",
+            "/api/projects/snaphabit/sections/nonexistent/comments",
             json={"anchor_text": "test", "body": "test"},
         )
         assert resp.status_code == 404
@@ -162,11 +162,11 @@ class TestInlineComments:
 class TestCommentRepliesUI:
     async def _create_comment(self, ui_client):
         resp = await ui_client.post(
-            "/api/projects/contentforge/sections/vision-and-overview/comments",
+            "/api/projects/snaphabit/sections/overview/comments",
             json={
-                "anchor_text": "self-hosted AI content factory",
-                "anchor_prefix": "ContentForge is a **",
-                "anchor_suffix": "** — an end-to-end",
+                "anchor_text": "mobile habit-tracking application",
+                "anchor_prefix": "SnapHabit is a **",
+                "anchor_suffix": "** that combines",
                 "body": "Test comment for replies",
             },
         )
@@ -176,7 +176,7 @@ class TestCommentRepliesUI:
         created = await self._create_comment(ui_client)
         cid = created["id"]
         resp = await ui_client.post(
-            f"/api/projects/contentforge/sections/vision-and-overview/comments/{cid}/replies",
+            f"/api/projects/snaphabit/sections/overview/comments/{cid}/replies",
             json={"body": "My reply"},
         )
         assert resp.status_code == 200
@@ -188,10 +188,10 @@ class TestCommentRepliesUI:
         created = await self._create_comment(ui_client)
         cid = created["id"]
         await ui_client.post(
-            f"/api/projects/contentforge/sections/vision-and-overview/comments/{cid}/replies",
+            f"/api/projects/snaphabit/sections/overview/comments/{cid}/replies",
             json={"body": "Nested reply"},
         )
-        resp = await ui_client.get("/api/projects/contentforge/sections/vision-and-overview")
+        resp = await ui_client.get("/api/projects/snaphabit/sections/overview")
         data = resp.json()
         comment = next(c for c in data["comments"] if c["id"] == cid)
         assert len(comment["replies"]) == 1
@@ -200,25 +200,25 @@ class TestCommentRepliesUI:
 
 class TestSettingsUI:
     async def test_get_defaults(self, ui_client):
-        resp = await ui_client.get("/api/projects/contentforge/settings")
+        resp = await ui_client.get("/api/projects/snaphabit/settings")
         assert resp.status_code == 200
         data = resp.json()
         assert data["claude_comment_replies"] is True
 
     async def test_put_get_roundtrip(self, ui_client):
         resp = await ui_client.put(
-            "/api/projects/contentforge/settings",
+            "/api/projects/snaphabit/settings",
             json={"claude_comment_replies": False},
         )
         assert resp.status_code == 200
         assert resp.json()["claude_comment_replies"] is False
         # Verify via GET
-        resp2 = await ui_client.get("/api/projects/contentforge/settings")
+        resp2 = await ui_client.get("/api/projects/snaphabit/settings")
         assert resp2.json()["claude_comment_replies"] is False
 
     async def test_invalid_setting(self, ui_client):
         resp = await ui_client.put(
-            "/api/projects/contentforge/settings",
+            "/api/projects/snaphabit/settings",
             json={"unknown_key": True},
         )
         assert resp.status_code == 400
@@ -231,8 +231,8 @@ class TestSettingsUI:
 class TestOwnershipFix:
     async def _create_comment(self, ui_client):
         resp = await ui_client.post(
-            "/api/projects/contentforge/sections/vision-and-overview/comments",
-            json={"anchor_text": "self-hosted AI", "body": "Ownership test"},
+            "/api/projects/snaphabit/sections/overview/comments",
+            json={"anchor_text": "mobile habit-tracking", "body": "Ownership test"},
         )
         return resp.json()
 
@@ -241,7 +241,7 @@ class TestOwnershipFix:
         cid = created["id"]
         # Try to resolve via a different section
         resp = await ui_client.post(
-            f"/api/projects/contentforge/sections/data-model/comments/{cid}/resolve"
+            f"/api/projects/snaphabit/sections/data-model/comments/{cid}/resolve"
         )
         assert resp.status_code == 404
 
@@ -250,7 +250,7 @@ class TestOwnershipFix:
         cid = created["id"]
         resp = await ui_client.request(
             "DELETE",
-            f"/api/projects/contentforge/sections/data-model/comments/{cid}",
+            f"/api/projects/snaphabit/sections/data-model/comments/{cid}",
         )
         assert resp.status_code == 404
 
@@ -258,7 +258,7 @@ class TestOwnershipFix:
         created = await self._create_comment(ui_client)
         cid = created["id"]
         resp = await ui_client.post(
-            f"/api/projects/contentforge/sections/data-model/comments/{cid}/replies",
+            f"/api/projects/snaphabit/sections/data-model/comments/{cid}/replies",
             json={"body": "Wrong section reply"},
         )
         assert resp.status_code == 404

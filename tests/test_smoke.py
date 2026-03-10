@@ -61,25 +61,25 @@ class TestUIEndpoints:
 
 
 class TestSeedData:
-    def test_contentforge_project_exists(self, http_client):
-        resp = http_client.get(f"{UI_URL}/api/projects/contentforge")
+    def test_snaphabit_project_exists(self, http_client):
+        resp = http_client.get(f"{UI_URL}/api/projects/snaphabit")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["project"]["slug"] == "contentforge"
+        assert data["project"]["slug"] == "snaphabit"
         assert data["stats"]["sections"] >= 10
 
     def test_seed_sections_have_content(self, http_client):
-        resp = http_client.get(f"{UI_URL}/api/projects/contentforge/sections/data-model")
+        resp = http_client.get(f"{UI_URL}/api/projects/snaphabit/sections/data-model")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["section"]["content"]) > 100
 
     def test_seed_dependencies_exist(self, http_client):
-        resp = http_client.get(f"{UI_URL}/api/projects/contentforge")
+        resp = http_client.get(f"{UI_URL}/api/projects/snaphabit")
         assert resp.status_code == 200
         assert len(resp.json()["dependencies"]) >= 5
 
     def test_export_produces_markdown(self, http_client):
-        resp = http_client.get(f"{UI_URL}/api/projects/contentforge/export")
+        resp = http_client.get(f"{UI_URL}/api/projects/snaphabit/export")
         assert resp.status_code == 200
-        assert "# ContentForge" in resp.text
+        assert "# SnapHabit" in resp.text

@@ -7,8 +7,8 @@ PRD Forge is a self-hosted sectional PRD management system. It stores documents 
 ## Architecture
 
 Three Docker Compose services:
-- **PostgreSQL 16** (`postgres:16-alpine`) — 7 tables, 2 views, schema in `db/01_init.sql`, seed in `db/02_seed.sql`, comments in `db/03_comments.sql`, replies+settings in `db/04_replies_and_settings.sql`
-- **MCP Server** (`mcp_server/server.py`, ~850 lines) — FastMCP with 28 tools, asyncpg, stdio + HTTP transports
+- **PostgreSQL 16** (`postgres:16-alpine`) — 8 tables, 2 views, schema in `db/01_init.sql`, seed in `db/02_seed.sql` (SnapHabit sample, 12 sections), comments in `db/03_comments.sql`, replies+settings in `db/04_replies_and_settings.sql`, token stats in `db/05_token_stats.sql`
+- **MCP Server** (`mcp_server/server.py`, ~850 lines) — FastMCP with 31 tools, asyncpg, stdio + HTTP transports
 - **Web UI** (`ui/app.py`, ~850 lines) — FastAPI, dark theme with vertical nav rail, inline comments with replies, project settings, force-directed dependency graph
 - **Shared** (`shared/settings.py`) — Settings schema + validation, imported by both MCP server and UI
 
@@ -32,11 +32,15 @@ Three Docker Compose services:
 |------|---------|--------|
 | `docker-compose.yml` | 3-service stack definition | 50 |
 | `db/01_init.sql` | Schema DDL (tables, indexes, triggers, views) | 140 |
-| `db/02_seed.sql` | ContentForge sample data (13 sections, 15 deps) | 200+ |
+| `db/02_seed.sql` | SnapHabit sample seed (12 sections, 12 deps) | 570 |
+| `db/05_token_stats.sql` | Token usage estimates table | 12 |
+| `docs/tool-reference.md` | MCP tool table and usage examples | 100 |
+| `docs/data-model.md` | ER diagram, dependency types, statuses, tags | 120 |
+| `docs/scaling.md` | Multi-user and scaling guidance | 90 |
 | `db/03_comments.sql` | Inline comments table (section_comments) | 20 |
 | `db/04_replies_and_settings.sql` | Comment replies + project settings tables | 40 |
 | `shared/settings.py` | Settings schema, defaults, validation (shared) | 25 |
-| `mcp_server/server.py` | MCP server with 28 tools | 1290 |
+| `mcp_server/server.py` | MCP server with 31 tools | 1290 |
 | `ui/app.py` | FastAPI web UI with nav rail, replies, settings, light/dark theme | 1315 |
 | `ui/static/fonts.css` | Vendored Google Fonts (@font-face declarations) | 200+ |
 | `ui/static/fonts/` | Vendored woff2 font files (Inter + JetBrains Mono) | — |
@@ -51,17 +55,17 @@ Three Docker Compose services:
 
 **Group 2 — Section CRUD (7):** `prd_list_sections`, `prd_read_section` (primary tool — 3 queries), `prd_create_section`, `prd_update_section` (atomic revision), `prd_delete_section`, `prd_move_section`, `prd_duplicate_section`
 
-**Group 3a — Dependencies (2):** `prd_add_dependency` (idempotent upsert, same-project validation), `prd_remove_dependency`
+**Group 3a — Dependencies (3):** `prd_add_dependency` (idempotent upsert, same-project validation), `prd_remove_dependency`, `prd_suggest_dependencies` (FTS-based content similarity suggestions)
 
 **Group 3b — Inline Comments (4):** `prd_list_comments` (all comments across project with section pointers — use FIRST to find feedback), `prd_add_comment` (anchored to selected text with prefix/suffix context), `prd_resolve_comment` (mark as done after implementing, ownership-validated), `prd_delete_comment` (ownership-validated)
 
 **Group 3c — Comment Replies (1):** `prd_add_comment_reply` (threaded replies with author 'user'/'claude', ownership-validated)
 
-**Group 4 — Context & Search (3):** `prd_get_overview` (starting point), `prd_search` (FTS + tag:prefix), `prd_get_changelog`
+**Group 4 — Context & Search (4):** `prd_get_overview` (starting point), `prd_search` (FTS + tag:prefix), `prd_get_changelog`, `prd_token_stats` (cumulative token savings per project)
 
 **Group 5 — Revisions (3):** `prd_get_revisions`, `prd_read_revision`, `prd_rollback_section` (atomic with backup)
 
-**Group 6 — Export/Import (2):** `prd_export_markdown` (full doc, use sparingly), `prd_import_markdown` (splits on ## headings, fence-aware)
+**Group 6 — Export/Import (2):** `prd_export_markdown` (full doc, use sparingly), `prd_import_markdown` (configurable heading level or manual delimiter, fence-aware)
 
 **Group 7 — Batch (1):** `prd_bulk_status`
 
@@ -76,6 +80,7 @@ Three Docker Compose services:
 - **section_comments** — id, section_id, anchor_text, anchor_prefix, anchor_suffix, body, resolved, created_at, updated_at. Text anchoring uses prefix/suffix context (~40 chars each) for disambiguation.
 - **comment_replies** — id, comment_id (FK section_comments), author ('user'|'claude' CHECK), body, created_at. Threaded replies on comments.
 - **project_settings** — project_id (PK, FK projects), settings (JSONB, merged with defaults at read time), updated_at. Auto-trigger on update.
+- **token_estimates** — id, project_id (FK projects), operation, full_doc_tokens, loaded_tokens, created_at. Tracks context savings per read operation.
 - **section_tree** (view) — sections + project_slug, parent_slug, parent_title, revision_count, dep_out_count, dep_in_count
 - **project_changelog** (view) — revisions joined with section and project slugs
 
@@ -132,7 +137,7 @@ python -m venv .venv && .venv/bin/pip install -r tests/requirements.txt
 - Slug collisions: `prd_import_markdown` generates slugs from headings — duplicates are skipped unless `replace_existing=true`
 - FastMCP lifespan: uses `@asynccontextmanager` pattern
 - Cross-project dependency guard: composite FK at schema level + INSERT...SELECT with JOIN at app level
-- Import parser only splits on `## ` (h2 headings) — `###` and deeper are part of the section body
+- Import parser splits on configurable heading level (default `## `) — `###` and deeper are part of the section body. Manual delimiter mode (`<!-- split -->`) also available.
 - `/health` endpoint is a v1.1 addition beyond the original PRD §5.1 spec (5 routes → 6)
 - Inline comments use text anchoring (prefix + anchor_text + suffix) not character offsets — survives minor content edits. If anchor text can't be found after major edits, comment becomes "orphaned" (shown in panel but not highlighted)
 - Comment highlights use `range.surroundContents()` which fails if selection spans multiple DOM elements — in that case the comment is still saved and shown in the panel, just without inline highlight
@@ -142,8 +147,8 @@ python -m venv .venv && .venv/bin/pip install -r tests/requirements.txt
 
 ## Residual Risks
 
-1. **Markdown import parser is heuristic** — fence-state tracking handles common code blocks but won't handle malformed or exotic markdown constructs
-2. **No latency/error-rate metrics** — structured logging and `/health` provide basic operability
+1. **Markdown import parser is heuristic** — fence-state tracking handles common code blocks but won't handle malformed or exotic markdown constructs. Now supports configurable heading level and manual delimiters.
+2. **No latency/error-rate metrics** — structured logging, `/health`, and `prd_token_stats` provide operability and token savings tracking
 3. **No reverse proxy hardening** — localhost-only binding prevents accidental LAN exposure
 
 ## Testing

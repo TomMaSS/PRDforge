@@ -29,7 +29,8 @@ try:
         await db_pool.execute("DELETE FROM comment_replies")
         await db_pool.execute("DELETE FROM section_comments")
         await db_pool.execute("DELETE FROM project_settings")
-        await db_pool.execute("DELETE FROM projects WHERE slug != 'contentforge'")
+        await db_pool.execute("DELETE FROM token_estimates")
+        await db_pool.execute("DELETE FROM projects WHERE slug != 'snaphabit'")
 
     @pytest_asyncio.fixture(scope="session")
     async def mcp_pool(db_pool):

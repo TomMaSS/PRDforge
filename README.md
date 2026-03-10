@@ -2,7 +2,7 @@
 
 **Stop feeding your entire spec to Claude every time you change one paragraph.**
 
-PRD Forge splits your product requirements into independently addressable sections stored in PostgreSQL, then gives Claude surgical read/write access through 28 MCP tools. The result: edits that used to burn ~15,000 tokens now cost 500-2,000 — an **85-95% reduction** in context per operation.
+PRD Forge splits your product requirements into independently addressable sections stored in PostgreSQL, then gives Claude surgical read/write access through 31 MCP tools. The result: edits that used to burn ~15,000 tokens now cost 500-2,000 — an **85-95% reduction** in context per operation.
 
 ## The Problem
 
@@ -22,7 +22,7 @@ Claude always has enough context to make informed edits without paying for the e
 
 ## What You Get
 
-- **28 MCP tools** — read, write, search, import/export, manage dependencies, track revisions, resolve comments. Claude operates on your spec like a database, not a blob of text.
+- **31 MCP tools** — read, write, search, import/export, manage dependencies, track revisions, resolve comments. Claude operates on your spec like a database, not a blob of text.
 - **Dependency-aware context** — sections know what they depend on. When Claude reads one, it automatically gets summaries of upstream sections for context.
 - **Full revision history** — every content change creates a revision. Roll back any section to any point. No content is ever lost.
 - **Google Docs-style comments** — leave inline comments anchored to specific text, Claude reads them, implements changes, resolves them. Threaded replies included.
@@ -40,7 +40,7 @@ graph LR
 ```
 
 Three Docker services, all localhost-only:
-- **PostgreSQL 16** — source of truth (7 tables, 2 views)
+- **PostgreSQL 16** — source of truth (8 tables, 2 views)
 - **MCP Server** — 28 tools for Claude integration (stdio + HTTP transports)
 - **Web UI** — browser interface with inline comments, dependency graph, dark/light theme
 
@@ -65,7 +65,7 @@ This single command:
 ./install.sh --uninstall        # Remove config + optionally stop services
 ```
 
-The stack starts in ~15 seconds. PostgreSQL seeds a sample "ContentForge" project on first boot.
+The stack starts in ~15 seconds. PostgreSQL seeds a sample "SnapHabit" project (12 sections, 12 dependencies) on first boot — a mobile habit-tracking app with AWS serverless backend. Edit or delete the seed data to start your own PRD.
 
 After install, restart your Claude client. Web UI: http://localhost:8088
 
@@ -138,36 +138,9 @@ Start services: `docker compose up -d`
 
 ## Tool Reference
 
-| Tool | Group | Description | ~Tokens |
-|------|-------|-------------|---------|
-| `prd_list_projects` | Project | List all projects with stats | 50 |
-| `prd_create_project` | Project | Create new project | — |
-| `prd_delete_project` | Project | Delete project (cascades) | — |
-| `prd_list_sections` | Section | List sections (metadata only) | 200 |
-| `prd_read_section` | Section | Read section + dependency context | 500-3000 |
-| `prd_create_section` | Section | Create new section | — |
-| `prd_update_section` | Section | Update fields, auto-revision on content change | — |
-| `prd_delete_section` | Section | Delete section (warns about deps) | — |
-| `prd_move_section` | Section | Change sort_order or parent | — |
-| `prd_duplicate_section` | Section | Copy section with new slug | — |
-| `prd_add_dependency` | Deps | Add/update dependency (idempotent) | — |
-| `prd_remove_dependency` | Deps | Remove dependency | — |
-| `prd_get_overview` | Context | Project overview with summaries | 400 |
-| `prd_search` | Context | Full-text or tag search | 200 |
-| `prd_get_changelog` | Context | Recent revision history | 300 |
-| `prd_get_revisions` | Revision | List revision metadata | 100 |
-| `prd_read_revision` | Revision | Read revision content | 500-3000 |
-| `prd_rollback_section` | Revision | Rollback with backup | — |
-| `prd_export_markdown` | Export | Full document as markdown | 15000+ |
-| `prd_import_markdown` | Import | Import from markdown (splits on ##) | — |
-| `prd_bulk_status` | Batch | Update status for multiple sections | — |
-| `prd_list_comments` | Comments | List all comments across project with section pointers | 100-500 |
-| `prd_add_comment` | Comments | Add inline comment anchored to selected text | — |
-| `prd_resolve_comment` | Comments | Resolve/reopen a comment after implementing changes | — |
-| `prd_delete_comment` | Comments | Delete a comment | — |
-| `prd_add_comment_reply` | Replies | Add a reply to an inline comment | — |
-| `prd_get_settings` | Settings | Get project settings (merged defaults + overrides) | 50 |
-| `prd_update_settings` | Settings | Update project settings | — |
+31 MCP tools across 10 groups: project management, section CRUD, dependencies, comments, context/search, revisions, import/export, batch operations, token stats, and settings.
+
+See **[docs/tool-reference.md](docs/tool-reference.md)** for the full tool table and usage examples.
 
 ## Inline Comments
 
@@ -181,181 +154,21 @@ Google Docs-style comments anchored to specific text in any section:
 
 Workflow: leave comments → ask Claude to check feedback → Claude calls `prd_list_comments` to see which sections have comments → reads only those sections → implements changes → resolves comments.
 
-## Data Model
+## Data Model & Reference
 
-```mermaid
-erDiagram
-    projects ||--o{ sections : has
-    sections ||--o{ section_revisions : tracks
-    sections ||--o{ section_dependencies : "from"
-    sections ||--o{ section_dependencies : "to"
-    sections ||--o{ section_comments : has
-    section_comments ||--o{ comment_replies : has
-    projects ||--o| project_settings : has
-    sections ||--o| sections : parent
-
-    projects {
-        uuid id PK
-        text slug UK
-        text name
-        int version
-    }
-    sections {
-        uuid id PK
-        uuid project_id FK
-        text slug
-        text content
-        text summary
-        text status
-        text tags
-        int word_count
-    }
-    section_revisions {
-        uuid id PK
-        uuid section_id FK
-        int revision_number
-        text content
-        text summary
-    }
-    section_dependencies {
-        uuid id PK
-        uuid project_id FK
-        uuid section_id FK
-        uuid depends_on_id FK
-        text dependency_type
-    }
-    section_comments {
-        uuid id PK
-        uuid section_id FK
-        text anchor_text
-        text body
-        boolean resolved
-    }
-    comment_replies {
-        uuid id PK
-        uuid comment_id FK
-        text author
-        text body
-    }
-    project_settings {
-        uuid project_id PK
-        json settings
-    }
-```
-
-## Dependency Graph (Seed Data)
-
-```mermaid
-graph TD
-    HW[hardware] --> TS[tech-stack]
-    TS --> DM[data-model]
-    TS --> PL[pipeline]
-    HW --> PL
-    DM --> PL
-    DM --> API[api-spec]
-    PL --> API
-    PL --> CUI[comfyui-workflows]
-    API --> UI[ui-design]
-    TS --> DEP[deployment]
-    HW --> DEP
-    DM --> TL[timeline]
-    PL --> TL
-    UI --> TL
-    DEP --> TL
-```
-
-## Dependency Types
-
-When linking sections with `prd_add_dependency`, use one of these types:
-
-| Type | Meaning | Example |
-|------|---------|---------|
-| `blocks` | Section cannot proceed until dependency is complete | `pipeline` blocks `api-spec` |
-| `extends` | Section builds upon or extends the dependency | `api-spec` extends `data-model` |
-| `implements` | Section implements what the dependency specifies | `ui-design` implements `api-spec` |
-| `references` | Section references the dependency for context (default) | `security` references `tech-stack` |
-
-## Tags
-
-Tags categorize sections for filtering and search (via `prd_search(query="tag:mvp")`):
-
-| Tag | Purpose |
-|-----|---------|
-| `mvp` | Part of minimum viable product scope |
-| `core` | Core system functionality |
-| `infra` | Infrastructure and deployment concerns |
-| `ai` | AI/ML related components |
-| `frontend` | User-facing interface components |
-
-Tags are freeform — you can create any tag. The above are conventions used in the seed data.
-
-## Section Statuses
-
-| Status | Meaning |
-|--------|---------|
-| `draft` | Initial writing, not yet reviewed |
-| `in_progress` | Actively being worked on |
-| `review` | Ready for review |
-| `approved` | Finalized and approved |
-| `outdated` | Needs update due to changes in dependencies |
-
-## Usage Examples
-
-**Standard editing workflow:**
-```
-prd_get_overview(project="contentforge")           → TOC + summaries (~400 tokens)
-prd_read_section(project="contentforge", section="data-model")  → full content + dep summaries
-prd_update_section(project="contentforge", section="data-model",
-    content="...updated...", change_description="Added Schedule entity")
-```
-
-**Impact analysis:**
-```
-prd_read_section(section="tech-stack")  → see depended_by list
-# Then update each dependent section in order
-```
-
-**Comment-driven editing (auto-resolve):**
-```
-prd_read_section(project="contentforge", section="tech-stack")
-  → content + 2 open comments with IDs + replies
-prd_update_section(project="contentforge", section="tech-stack",
-    content="...updated...", change_description="Switched Redis to Valkey",
-    resolve_comments=["comment-id-1", "comment-id-2"])
-  → atomically updates content + resolves comments + auto-replies if setting enabled
-```
-
-**Rollback:**
-```
-prd_get_revisions(section="data-model")     → see revision history
-prd_rollback_section(section="data-model", revision=3)  → restore, current saved as backup
-```
+8 tables, 2 views. See **[docs/data-model.md](docs/data-model.md)** for the full ER diagram, dependency types, tags, statuses, and the SnapHabit example dependency graph.
 
 ## Seed Data
 
-The "ContentForge" sample project ships with 13 sections:
+The default seed (`db/02_seed.sql`) creates a "SnapHabit" project — a mobile habit-tracking app with AWS serverless backend. It has 12 sections (overview, user research, tech stack, data model, API spec, mobile app, push notifications, auth, deployment, analytics, testing strategy, timeline) and 12 dependencies.
 
-| # | Slug | Title | Status | Tags |
-|---|------|-------|--------|------|
-| 0 | overview | Overview & Goals | approved | mvp, core |
-| 1 | hardware | Hardware Constraints | approved | infra, core |
-| 2 | tech-stack | Technology Stack | approved | mvp, core |
-| 3 | data-model | Data Model | in_progress | mvp, core |
-| 4 | pipeline | Processing Pipeline | in_progress | mvp, core, ai |
-| 5 | comfyui-workflows | ComfyUI Workflows | draft | ai |
-| 6 | api-spec | API Specification | in_progress | mvp, frontend |
-| 7 | ui-design | UI Design | draft | frontend |
-| 8 | deployment | Deployment Strategy | approved | infra |
-| 9 | security | Security Model | draft | infra |
-| 10 | legal | Legal & Compliance | draft | — |
-| 11 | risks | Risks & Mitigations | draft | — |
-| 12 | timeline | Implementation Timeline | in_progress | mvp |
+Edit or delete these to start your own PRD. To start fresh, simply clear the seed and add your own sections.
 
 ## Backup & Restore
 
 ```bash
 # Export as markdown
-curl http://localhost:8088/api/projects/contentforge/export > backup.md
+curl http://localhost:8088/api/projects/snaphabit/export > backup.md
 
 # PostgreSQL dump
 docker exec prdforge-postgres-1 pg_dump -U prdforge prdforge > backup.sql
@@ -367,15 +180,16 @@ docker compose up -d
 
 ## Security Notes
 
+> **WARNING: PRD Forge is a single-user local-only tool.** It has no authentication, no authorization, and no rate limiting. It is NOT suitable for team use, shared access, or deployment on a network.
+
 - All ports bound to `127.0.0.1` — not accessible from LAN by default
-- No authentication — single-user local tool
-- For non-local access, put behind a reverse proxy with TLS
-- Database credentials are defaults — acceptable for local personal tool
+- **Do NOT** bind ports to `0.0.0.0`, expose them via tunnels (ngrok, Cloudflare Tunnel), or open firewall rules. Anyone with network access to port 8080 gets full read/write access to all your data with zero authentication.
+- Database credentials are defaults (`prdforge`/`prdforge`) — acceptable only for localhost
+- If you must expose PRD Forge beyond localhost, put it behind a reverse proxy with TLS and authentication. See [docs/scaling.md](docs/scaling.md) for guidance.
 
 ## Known Limitations
 
-- Markdown import parser splits on `## ` headings only (heuristic, handles code fences)
-- No latency/error-rate metrics (structured logging + `/health` endpoint only)
+- No latency/error-rate metrics beyond structured logging, `/health`, and `prd_token_stats`
 - No reverse proxy hardening — localhost-only binding prevents accidental exposure
 
 ## Development
@@ -404,11 +218,16 @@ PRDforge/
 ├── README.md
 ├── AGENTS.md
 ├── prd.md
+├── docs/
+│   ├── tool-reference.md
+│   ├── data-model.md
+│   └── scaling.md
 ├── db/
 │   ├── 01_init.sql
 │   ├── 02_seed.sql
 │   ├── 03_comments.sql
-│   └── 04_replies_and_settings.sql
+│   ├── 04_replies_and_settings.sql
+│   └── 05_token_stats.sql
 ├── shared/
 │   ├── __init__.py
 │   └── settings.py

@@ -21,8 +21,8 @@
 
 - [x] Infrastructure files (.gitignore, .env.example, docker-compose.yml, Dockerfiles, requirements)
 - [x] Database schema with composite FK cross-project guard
-- [x] Seed data (ContentForge, 13 sections, 15 dependencies)
-- [x] MCP server — 28 tools with atomic revision-before-update
+- [x] Seed data (SnapHabit, 12 sections, 12 dependencies)
+- [x] MCP server — 31 tools with atomic revision-before-update
 - [x] Web UI — dark theme SPA with vendored marked.js
 - [x] Test suite (test_mcp_tools.py, test_ui_api.py)
 - [x] README.md with architecture diagrams
