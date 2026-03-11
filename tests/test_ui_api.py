@@ -262,3 +262,49 @@ class TestOwnershipFix:
             json={"body": "Wrong section reply"},
         )
         assert resp.status_code == 404
+
+
+class TestTokenStats:
+    async def test_token_stats_success(self, ui_client):
+        import app as ui_app
+        pool = ui_app.pool
+        pid = await pool.fetchval("SELECT id FROM projects WHERE slug='snaphabit'")
+        await pool.execute(
+            "INSERT INTO token_estimates (project_id, operation, full_doc_tokens, loaded_tokens) "
+            "VALUES ($1, 'read_section', 15000, 1200), ($1, 'read_section', 15000, 800)",
+            pid,
+        )
+        resp = await ui_client.get("/api/projects/snaphabit/token-stats")
+        assert resp.status_code == 200
+        d = resp.json()
+        assert d["operations"] == 2
+        assert d["total_full_doc_tokens"] == 30000
+        assert d["total_loaded_tokens"] == 2000
+        assert d["total_saved_tokens"] == 28000
+        assert d["savings_percent"] == 93.3
+        assert len(d["by_operation"]) >= 1
+        ops = {o["operation"]: o for o in d["by_operation"]}
+        assert ops["read_section"]["count"] == 2
+        assert len(d["daily_trend"]) == 7
+        days = [e["day"] for e in d["daily_trend"]]
+        assert days == sorted(days)
+        # At least one day with zero
+        assert any(e["operations"] == 0 and e["tokens_saved"] == 0 for e in d["daily_trend"])
+
+    async def test_token_stats_not_found(self, ui_client):
+        resp = await ui_client.get("/api/projects/nonexistent/token-stats")
+        assert resp.status_code == 404
+
+    async def test_token_stats_empty(self, ui_client):
+        resp = await ui_client.get("/api/projects/snaphabit/token-stats")
+        assert resp.status_code == 200
+        d = resp.json()
+        assert d["operations"] == 0
+        assert d["total_full_doc_tokens"] == 0
+        assert d["total_loaded_tokens"] == 0
+        assert d["total_saved_tokens"] == 0
+        assert d["savings_percent"] == 0
+        assert len(d["daily_trend"]) == 7
+        assert all(e["operations"] == 0 and e["tokens_saved"] == 0 for e in d["daily_trend"])
+        days = [e["day"] for e in d["daily_trend"]]
+        assert days == sorted(days)
