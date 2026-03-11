@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-prdforge}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prdforge}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/01_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro

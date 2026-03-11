@@ -65,7 +65,10 @@ This single command:
 ./install.sh --claude-desktop   # Non-interactive (stdio transport)
 ./install.sh --build            # Force local build instead of pulling images
 ./install.sh --uninstall        # Remove config + optionally stop services
+POSTGRES_PORT=5433 ./install.sh # Override host PostgreSQL port
 ```
+
+If `5432` is already in use, `install.sh` automatically picks the first free port in `5433-5500` and configures it for Docker + Claude Desktop.
 
 The stack starts in ~15 seconds. PostgreSQL seeds a sample "SnapHabit" project (12 sections, 12 dependencies) on first boot — a mobile habit-tracking app with AWS serverless backend. Edit or delete the seed data to start your own PRD.
 
@@ -121,6 +124,7 @@ Start services: `docker compose up -d`
 4. Restart Claude Desktop (Cmd+Q, reopen)
 
 > **Note:** Claude Desktop does not support HTTP transport. Use stdio (spawns server as subprocess).
+> If PostgreSQL is published on a non-default host port, replace `5432` in `DATABASE_URL` with your chosen port.
 </details>
 
 <details>

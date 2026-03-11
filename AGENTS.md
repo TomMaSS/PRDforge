@@ -144,6 +144,7 @@ python -m venv .venv && .venv/bin/pip install -r tests/requirements.txt
 - **Comment ownership validation:** ALL comment mutation routes/tools (resolve, delete, reply) MUST validate that the comment belongs to the specified project/section using a JOIN through `sections → projects`. Use `resolve_comment_id()` helper in MCP server, or inline ownership JOIN in UI endpoints. Never mutate by comment_id alone.
 - **Shared settings module:** `shared/settings.py` is the single source of truth for `SETTINGS_SCHEMA` and `validate_settings()`. Both `server.py` and `app.py` import from it via `sys.path.insert(0, "..")`
 - `prd_update_section` supports `resolve_comments` param — atomically resolves comments + auto-replies if `claude_comment_replies` setting is enabled
+- `install.sh` now auto-selects a free host PostgreSQL port (`5432`, else first free in `5433-5500`) and exports `POSTGRES_PORT` so Docker + Claude Desktop config stay in sync
 
 ## Residual Risks
 
