@@ -80,6 +80,21 @@ class TestSectionCRUD:
         assert "created" in result
         assert result["created"]["slug"] == "intro"
 
+    async def test_create_section_type_alias(self, mcp_pool):
+        import server
+
+        await server.prd_create_project(name="AliasTest", slug="alias-test")
+        result = json.loads(await server.prd_create_section(
+            project="alias-test",
+            slug="reqs",
+            title="Requirements",
+            section_type="requirements",
+            content="content",
+        ))
+
+        assert "created" in result
+        assert result["created"]["section_type"] == "general"
+
     async def test_update_section_with_revision(self, mcp_pool):
         import server
         await server.prd_create_project(name="UpdTest", slug="upd-test")
