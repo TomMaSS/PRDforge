@@ -21,6 +21,47 @@ warn()  { echo -e "${YELLOW}!${NC} $1"; }
 err()   { echo -e "${RED}✗${NC} $1" >&2; }
 die()   { err "$1"; exit 1; }
 
+port_available() {
+  local port="$1"
+  python3 - "$port" <<'PY'
+import socket, sys
+
+port = int(sys.argv[1])
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+  s.bind(("127.0.0.1", port))
+except OSError:
+  sys.exit(1)
+finally:
+  s.close()
+sys.exit(0)
+PY
+}
+
+find_available_port() {
+  local start_port="$1"
+  local end_port="$2"
+  python3 - "$start_port" "$end_port" <<'PY'
+import socket, sys
+
+start_port = int(sys.argv[1])
+end_port = int(sys.argv[2])
+
+for port in range(start_port, end_port + 1):
+  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  try:
+    s.bind(("127.0.0.1", port))
+    print(port)
+    sys.exit(0)
+  except OSError:
+    continue
+  finally:
+    s.close()
+
+sys.exit(1)
+PY
+}
+
 CLAUDE_CODE_CONFIG="$HOME/.claude/mcp.json"
 CLAUDE_DESKTOP_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 MCP_SERVER_NAME="prd-forge"
@@ -123,7 +164,33 @@ command -v docker >/dev/null 2>&1 || die "docker not found. Install Docker Deskt
 docker info >/dev/null 2>&1 || die "Docker daemon not running. Start Docker Desktop first."
 command -v python3 >/dev/null 2>&1 || die "python3 not found"
 
+DEFAULT_POSTGRES_PORT=5432
+if [ -n "${POSTGRES_PORT:-}" ]; then
+  if ! port_available "$POSTGRES_PORT"; then
+    die "POSTGRES_PORT=$POSTGRES_PORT is already in use. Set POSTGRES_PORT to a free port and retry."
+  fi
+else
+  POSTGRES_PORT="$DEFAULT_POSTGRES_PORT"
+  if ! port_available "$POSTGRES_PORT"; then
+    fallback_port=$(find_available_port 5433 5500 || true)
+    [ -n "${fallback_port:-}" ] || die "Ports 5432-5500 are unavailable. Free a port or set POSTGRES_PORT manually."
+    warn "Port 5432 is already in use; using POSTGRES_PORT=$fallback_port"
+    POSTGRES_PORT="$fallback_port"
+  fi
+fi
+export POSTGRES_PORT
+
+# Persist to .env so `docker compose up -d` works without install.sh
+ENV_FILE="$SCRIPT_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+  # Remove old POSTGRES_PORT line if present, then append
+  grep -v '^POSTGRES_PORT=' "$ENV_FILE" > "$ENV_FILE.tmp" || true
+  mv "$ENV_FILE.tmp" "$ENV_FILE"
+fi
+echo "POSTGRES_PORT=$POSTGRES_PORT" >> "$ENV_FILE"
+
 ok "Prerequisites OK"
+info "Using PostgreSQL host port: $POSTGRES_PORT"
 
 # ─── Auto-detect client if not specified ─────────────────────────────
 if [ -z "$MODE" ]; then
@@ -215,6 +282,9 @@ echo ""
 if [ "$MODE" = "code" ]; then
   info "Configuring Claude Code ($CONFIG_FILE)..."
 
+  # Claude Code connects to MCP server via HTTP; the MCP server runs in Docker
+  # and reaches PostgreSQL via the internal Docker network (postgres:5432),
+  # so POSTGRES_PORT (host mapping) is not needed here.
   MCP_ENTRY="{\"$MCP_SERVER_NAME\": {\"type\": \"http\", \"url\": \"http://localhost:8080/mcp/\"}}"
   json_set_mcp "$CONFIG_FILE" "$MCP_ENTRY"
   ok "Claude Code MCP config written"
@@ -235,7 +305,7 @@ elif [ "$MODE" = "desktop" ]; then
   PYTHON_PATH="$VENV_DIR/bin/python"
   SERVER_PATH="$SCRIPT_DIR/mcp_server/server.py"
 
-  MCP_ENTRY="{\"$MCP_SERVER_NAME\": {\"command\": \"$PYTHON_PATH\", \"args\": [\"$SERVER_PATH\"], \"env\": {\"DATABASE_URL\": \"postgresql://prdforge:prdforge@localhost:5432/prdforge\"}}}"
+  MCP_ENTRY="{\"$MCP_SERVER_NAME\": {\"command\": \"$PYTHON_PATH\", \"args\": [\"$SERVER_PATH\"], \"env\": {\"DATABASE_URL\": \"postgresql://prdforge:prdforge@localhost:${POSTGRES_PORT}/prdforge\"}}}"
   json_set_mcp "$CONFIG_FILE" "$MCP_ENTRY"
   ok "Claude Desktop MCP config written"
 fi
