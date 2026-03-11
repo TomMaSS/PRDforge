@@ -25,7 +25,16 @@ try:
     @pytest_asyncio.fixture(autouse=True)
     async def clean_test_data(db_pool):
         """Clean up test-created data after each test, preserving seed data."""
+        await db_pool.execute("DELETE FROM chat_messages")
+        await db_pool.execute("DELETE FROM project_chats")
+        await db_pool.execute("DELETE FROM comment_replies")
+        await db_pool.execute("DELETE FROM section_comments")
+        await db_pool.execute("DELETE FROM project_settings")
+        await db_pool.execute("DELETE FROM token_estimates")
+        await db_pool.execute("DELETE FROM projects WHERE slug != 'snaphabit'")
         yield
+        await db_pool.execute("DELETE FROM chat_messages")
+        await db_pool.execute("DELETE FROM project_chats")
         await db_pool.execute("DELETE FROM comment_replies")
         await db_pool.execute("DELETE FROM section_comments")
         await db_pool.execute("DELETE FROM project_settings")

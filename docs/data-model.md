@@ -12,6 +12,8 @@ erDiagram
     section_comments ||--o{ comment_replies : has
     projects ||--o| project_settings : has
     projects ||--o{ token_estimates : tracks
+    projects ||--o| project_chats : has
+    project_chats ||--o{ chat_messages : has
     sections ||--o| sections : parent
 
     projects {
@@ -67,6 +69,19 @@ erDiagram
         text operation
         int full_doc_tokens
         int loaded_tokens
+    }
+    project_chats {
+        uuid id PK
+        uuid project_id UK, FK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    chat_messages {
+        uuid id PK
+        uuid chat_id FK
+        text role
+        text content
+        json metadata
     }
 ```
 

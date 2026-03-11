@@ -33,6 +33,92 @@ class TestUIEndpoints:
         resp = await ui_client.get("/api/projects/nonexistent")
         assert resp.status_code == 404
 
+    async def test_create_project(self, ui_client):
+        resp = await ui_client.post(
+            "/api/projects",
+            json={
+                "name": "New UI Project",
+                "slug": "new-ui-project",
+                "description": "Created from UI API",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "New UI Project"
+        assert data["slug"] == "new-ui-project"
+        assert data["description"] == "Created from UI API"
+
+    async def test_create_project_invalid_payload(self, ui_client):
+        missing_name = await ui_client.post(
+            "/api/projects",
+            json={"slug": "missing-name"},
+        )
+        assert missing_name.status_code == 400
+        assert missing_name.json()["error"] == "name required"
+
+        invalid_slug = await ui_client.post(
+            "/api/projects",
+            json={"name": "Bad Slug", "slug": "Bad Slug!"},
+        )
+        assert invalid_slug.status_code == 400
+        assert "invalid slug" in invalid_slug.json()["error"]
+
+    async def test_create_project_duplicate_slug(self, ui_client):
+        first = await ui_client.post(
+            "/api/projects",
+            json={"name": "Project One", "slug": "same-slug"},
+        )
+        assert first.status_code == 200
+
+        second = await ui_client.post(
+            "/api/projects",
+            json={"name": "Project Two", "slug": "same-slug"},
+        )
+        assert second.status_code == 409
+        assert "already exists" in second.json()["error"]
+
+        async def test_project_detail_backfills_chat_generated_graph_data(self, ui_client):
+            import app as ui_app
+
+            pool = ui_app.pool
+            pid = await pool.fetchval(
+                """
+                INSERT INTO projects (name, slug, description)
+                VALUES ('Chat Backfill', 'chat-backfill', '')
+                RETURNING id
+                """
+            )
+            await pool.execute(
+                """
+                INSERT INTO sections (project_id, slug, title, section_type, sort_order, content, summary)
+                VALUES
+                    ($1, 's1', 'S1', 'general', 1, 'Section one content', 'S1 summary'),
+                    ($1, 's2', 'S2', 'general', 2, 'Section two content', 'S2 summary')
+                """,
+                pid,
+            )
+            chat_id = await pool.fetchval(
+                """
+                INSERT INTO project_chats (project_id)
+                VALUES ($1)
+                RETURNING id
+                """,
+                pid,
+            )
+            await pool.execute(
+                """
+                INSERT INTO chat_messages (chat_id, role, content, metadata)
+                VALUES ($1, 'user', 'Generate PRD', '{}'::jsonb)
+                """,
+                chat_id,
+            )
+
+            resp = await ui_client.get("/api/projects/chat-backfill")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert len(data["dependencies"]) == 1
+            assert len(data["changelog"]) >= 2
+
     async def test_section_detail(self, ui_client):
         resp = await ui_client.get("/api/projects/snaphabit/sections/data-model")
         assert resp.status_code == 200
@@ -204,17 +290,20 @@ class TestSettingsUI:
         assert resp.status_code == 200
         data = resp.json()
         assert data["claude_comment_replies"] is True
+        assert data["chat_provider"] in {"claude_cli", "anthropic_api"}
 
     async def test_put_get_roundtrip(self, ui_client):
         resp = await ui_client.put(
             "/api/projects/snaphabit/settings",
-            json={"claude_comment_replies": False},
+            json={"claude_comment_replies": False, "chat_provider": "anthropic_api"},
         )
         assert resp.status_code == 200
         assert resp.json()["claude_comment_replies"] is False
+        assert resp.json()["chat_provider"] == "anthropic_api"
         # Verify via GET
         resp2 = await ui_client.get("/api/projects/snaphabit/settings")
         assert resp2.json()["claude_comment_replies"] is False
+        assert resp2.json()["chat_provider"] == "anthropic_api"
 
     async def test_invalid_setting(self, ui_client):
         resp = await ui_client.put(
@@ -222,6 +311,12 @@ class TestSettingsUI:
             json={"unknown_key": True},
         )
         assert resp.status_code == 400
+
+        resp2 = await ui_client.put(
+            "/api/projects/snaphabit/settings",
+            json={"chat_provider": "invalid_provider"},
+        )
+        assert resp2.status_code == 400
 
     async def test_settings_404_nonexistent_project(self, ui_client):
         resp = await ui_client.get("/api/projects/nonexistent/settings")
@@ -264,6 +359,293 @@ class TestOwnershipFix:
         assert resp.status_code == 404
 
 
+class TestChatUI:
+    async def test_chat_messages_empty(self, ui_client):
+        resp = await ui_client.get("/api/projects/snaphabit/chat/messages")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["messages"] == []
+
+    async def test_chat_messages_project_not_found(self, ui_client):
+        resp = await ui_client.get("/api/projects/nonexistent/chat/messages")
+        assert resp.status_code == 404
+
+    async def test_chat_stream_requires_message(self, ui_client):
+        resp = await ui_client.post(
+            "/api/projects/snaphabit/chat/stream",
+            json={"message": "   "},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "message required"
+
+    async def test_chat_stream_invalid_json(self, ui_client):
+        resp = await ui_client.post(
+            "/api/projects/snaphabit/chat/stream",
+            content="not-json",
+            headers={"content-type": "text/plain"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "invalid JSON body"
+
+    async def test_chat_stream_rejects_invalid_attachments_payload(self, ui_client):
+        resp = await ui_client.post(
+            "/api/projects/snaphabit/chat/stream",
+            json={"message": "Analyze", "attachments": {"name": "file.txt"}},
+        )
+        assert resp.status_code == 400
+        assert "attachments" in resp.json()["error"]
+
+    async def test_chat_stream_and_persisted_transcript(self, ui_client, monkeypatch):
+        import app as ui_app
+
+        async def fake_agent(project_slug, history, user_message):
+            assert project_slug == "snaphabit"
+            assert user_message == "Summarize project"
+            return (
+                "Here is a short summary.",
+                [{"name": "prd_get_overview", "result": {"ok": True}}],
+            )
+
+        monkeypatch.setattr(ui_app, "_run_chat_agent_turn", fake_agent)
+
+        stream_resp = await ui_client.post(
+            "/api/projects/snaphabit/chat/stream",
+            json={"message": "Summarize project"},
+        )
+        assert stream_resp.status_code == 200
+        assert "text/event-stream" in stream_resp.headers["content-type"]
+        assert "event: delta" in stream_resp.text
+        assert "event: done" in stream_resp.text
+
+        transcript_resp = await ui_client.get("/api/projects/snaphabit/chat/messages")
+        assert transcript_resp.status_code == 200
+        messages = transcript_resp.json()["messages"]
+        assert len(messages) == 2
+        assert messages[0]["role"] == "user"
+        assert messages[0]["content"] == "Summarize project"
+        assert messages[1]["role"] == "assistant"
+        assert "short summary" in messages[1]["content"]
+
+    async def test_chat_stream_with_selection_context(self, ui_client, monkeypatch):
+        import app as ui_app
+
+        async def fake_agent(project_slug, history, user_message):
+            assert project_slug == "snaphabit"
+            assert "Clarify this" in user_message
+            assert "Selected context from PRD Forge Web UI" in user_message
+            assert "Section: User Onboarding" in user_message
+            assert "Selected text:" in user_message
+            assert "Use this selected context" in user_message
+            return ("Context received.", [])
+
+        monkeypatch.setattr(ui_app, "_run_chat_agent_turn", fake_agent)
+
+        stream_resp = await ui_client.post(
+            "/api/projects/snaphabit/chat/stream",
+            json={
+                "message": "Clarify this",
+                "selection_context": {
+                    "section_slug": "user-onboarding",
+                    "section_title": "User Onboarding",
+                    "selected_text": "Users should complete setup in under 90 seconds.",
+                    "anchor_prefix": "Goal: ",
+                    "anchor_suffix": " for activation",
+                },
+            },
+        )
+        assert stream_resp.status_code == 200
+        assert "event: done" in stream_resp.text
+
+        transcript_resp = await ui_client.get("/api/projects/snaphabit/chat/messages")
+        assert transcript_resp.status_code == 200
+        messages = transcript_resp.json()["messages"]
+        assert len(messages) == 2
+        assert messages[0]["role"] == "user"
+        assert messages[0]["content"] == "Clarify this"
+        assert messages[0]["metadata"]["selection_context"]["section_slug"] == "user-onboarding"
+        assert messages[0]["metadata"]["selection_context"]["selected_text"].startswith("Users should")
+        assert messages[1]["role"] == "assistant"
+        assert messages[1]["content"] == "Context received."
+
+    async def test_chat_stream_with_attachments(self, ui_client, monkeypatch):
+        import app as ui_app
+
+        async def fake_agent(project_slug, history, user_message):
+            assert project_slug == "snaphabit"
+            assert "Please review attached files." in user_message
+            assert "[Attached files from PRD Forge Web UI]" in user_message
+            assert "File: release-notes.txt" in user_message
+            assert "MVP scope" in user_message
+            return ("Attachment received.", [])
+
+        monkeypatch.setattr(ui_app, "_run_chat_agent_turn", fake_agent)
+
+        stream_resp = await ui_client.post(
+            "/api/projects/snaphabit/chat/stream",
+            json={
+                "message": "",
+                "attachments": [
+                    {
+                        "name": "release-notes.txt",
+                        "mime_type": "text/plain",
+                        "size_bytes": 28,
+                        "content_text": "MVP scope\n- chat attachments",
+                    }
+                ],
+            },
+        )
+        assert stream_resp.status_code == 200
+        assert "event: done" in stream_resp.text
+
+        transcript_resp = await ui_client.get("/api/projects/snaphabit/chat/messages")
+        assert transcript_resp.status_code == 200
+        messages = transcript_resp.json()["messages"]
+        assert len(messages) == 2
+        assert messages[0]["role"] == "user"
+        assert messages[0]["content"] == "Please review attached files."
+        assert len(messages[0]["metadata"]["attachments"]) == 1
+        assert messages[0]["metadata"]["attachments"][0]["name"] == "release-notes.txt"
+        assert messages[1]["role"] == "assistant"
+        assert messages[1]["content"] == "Attachment received."
+
+    async def test_chat_clear(self, ui_client, monkeypatch):
+        import app as ui_app
+
+        async def fake_agent(project_slug, history, user_message):
+            return ("Done", [])
+
+        monkeypatch.setattr(ui_app, "_run_chat_agent_turn", fake_agent)
+
+        await ui_client.post(
+            "/api/projects/snaphabit/chat/stream",
+            json={"message": "hello"},
+        )
+        before = await ui_client.get("/api/projects/snaphabit/chat/messages")
+        assert len(before.json()["messages"]) == 2
+
+        clear_resp = await ui_client.post("/api/projects/snaphabit/chat/clear")
+        assert clear_resp.status_code == 200
+        assert clear_resp.json()["ok"] is True
+
+        after = await ui_client.get("/api/projects/snaphabit/chat/messages")
+        assert after.status_code == 200
+        assert after.json()["messages"] == []
+
+    async def test_chat_approve_continues_blocked_turn(self, ui_client, monkeypatch):
+        import app as ui_app
+
+        pool = ui_app.pool
+        pid = await pool.fetchval("SELECT id FROM projects WHERE slug='snaphabit'")
+        chat_id = await pool.fetchval(
+            """
+            INSERT INTO project_chats (project_id)
+            VALUES ($1)
+            ON CONFLICT (project_id)
+            DO UPDATE SET updated_at = now()
+            RETURNING id
+            """,
+            pid,
+        )
+
+        await pool.execute(
+            """
+            INSERT INTO chat_messages (chat_id, role, content, metadata, created_at)
+            VALUES ($1, 'user', 'Please update notes', '{}'::jsonb, now() - interval '1 second')
+            """,
+            chat_id,
+        )
+
+        approval_metadata = {
+            "provider": "claude_cli",
+            "approval_requests": [
+                {
+                    "kind": "manual_approval_required",
+                    "tool": "prd_update_section",
+                    "message": "Permission required",
+                }
+            ],
+            "approval_resolved": False,
+        }
+        approval_row = await pool.fetchrow(
+            """
+            INSERT INTO chat_messages (chat_id, role, content, metadata, created_at)
+            VALUES ($1, 'assistant', 'Permission required', $2::jsonb, now())
+            RETURNING id
+            """,
+            chat_id,
+            json.dumps(approval_metadata),
+        )
+
+        async def fake_cli_stream(
+            project_slug,
+            history,
+            user_message,
+            permission_mode_override=None,
+            allowed_tools_override=None,
+        ):
+            assert project_slug == "snaphabit"
+            assert permission_mode_override == "acceptEdits"
+            assert isinstance(allowed_tools_override, list)
+            assert "mcp__prd-forge__prd_update_section" in allowed_tools_override
+            assert "Please update notes" in user_message
+            yield {
+                "type": "tool",
+                "tool": {"name": "mcp__prd-forge__prd_update_section", "input": {"section": "tech-stack"}},
+            }
+            yield {"type": "delta", "text": "Applied update."}
+            yield {"type": "done", "text": "Applied update."}
+
+        monkeypatch.setattr(ui_app, "_claude_cli_turn_stream", fake_cli_stream)
+
+        resp = await ui_client.post(
+            "/api/projects/snaphabit/chat/approve",
+            json={"assistant_message_id": str(approval_row["id"])},
+        )
+        assert resp.status_code == 200
+        assert "event: done" in resp.text
+        assert "Applied update." in resp.text
+
+        transcript_resp = await ui_client.get("/api/projects/snaphabit/chat/messages")
+        messages = transcript_resp.json()["messages"]
+        assert messages[-1]["role"] == "assistant"
+        assert messages[-1]["content"] == "Applied update."
+        assert messages[-1]["metadata"]["approval_for_message_id"] == str(approval_row["id"])
+
+        approval_msg = next(m for m in messages if m["id"] == str(approval_row["id"]))
+        assert approval_msg["metadata"]["approval_resolved"] is True
+
+    async def test_chat_approve_rejects_message_without_approval(self, ui_client):
+        import app as ui_app
+
+        pool = ui_app.pool
+        pid = await pool.fetchval("SELECT id FROM projects WHERE slug='snaphabit'")
+        chat_id = await pool.fetchval(
+            """
+            INSERT INTO project_chats (project_id)
+            VALUES ($1)
+            ON CONFLICT (project_id)
+            DO UPDATE SET updated_at = now()
+            RETURNING id
+            """,
+            pid,
+        )
+        plain_assistant = await pool.fetchrow(
+            """
+            INSERT INTO chat_messages (chat_id, role, content, metadata)
+            VALUES ($1, 'assistant', 'No approval here', '{}'::jsonb)
+            RETURNING id
+            """,
+            chat_id,
+        )
+
+        resp = await ui_client.post(
+            "/api/projects/snaphabit/chat/approve",
+            json={"assistant_message_id": str(plain_assistant["id"])},
+        )
+        assert resp.status_code == 400
+        assert "approval" in resp.json()["error"]
+
+
 class TestTokenStats:
     async def test_token_stats_success(self, ui_client):
         import app as ui_app
@@ -282,6 +664,9 @@ class TestTokenStats:
         assert d["total_loaded_tokens"] == 2000
         assert d["total_saved_tokens"] == 28000
         assert d["savings_percent"] == 93.3
+            assert d["project_stats"]["sections"] >= 12
+            assert d["project_stats"]["dependencies"] >= 1
+            assert d["project_stats"]["revisions"] >= 0
         assert len(d["by_operation"]) >= 1
         ops = {o["operation"]: o for o in d["by_operation"]}
         assert ops["read_section"]["count"] == 2
@@ -304,6 +689,9 @@ class TestTokenStats:
         assert d["total_loaded_tokens"] == 0
         assert d["total_saved_tokens"] == 0
         assert d["savings_percent"] == 0
+            assert d["project_stats"]["sections"] >= 12
+            assert d["project_stats"]["dependencies"] >= 1
+            assert d["project_stats"]["revisions"] >= 0
         assert len(d["daily_trend"]) == 7
         assert all(e["operations"] == 0 and e["tokens_saved"] == 0 for e in d["daily_trend"])
         days = [e["day"] for e in d["daily_trend"]]

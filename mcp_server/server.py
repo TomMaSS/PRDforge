@@ -31,6 +31,17 @@ VALID_SECTION_TYPES = {
     "overview", "tech_spec", "data_model", "api_spec", "ui_design",
     "architecture", "deployment", "security", "testing", "timeline", "general",
 }
+SECTION_TYPE_ALIASES = {
+    "requirement": "general",
+    "requirements": "general",
+    "functional_requirements": "tech_spec",
+    "non_functional_requirements": "tech_spec",
+    "api": "api_spec",
+    "data": "data_model",
+    "ui": "ui_design",
+    "ux": "ui_design",
+    "roadmap": "timeline",
+}
 
 # --- Pool ---
 _pool: asyncpg.Pool | None = None
@@ -57,6 +68,37 @@ async def lifespan(server):
 
 
 mcp = FastMCP("prd_forge_mcp", lifespan=lifespan)
+
+
+def _parse_csv_env(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def configure_http_transport_security() -> None:
+    ts = getattr(mcp.settings, "transport_security", None)
+    if ts is None:
+        return
+
+    allowed_hosts = set(getattr(ts, "allowed_hosts", []) or [])
+    allowed_origins = set(getattr(ts, "allowed_origins", []) or [])
+
+    env_hosts = _parse_csv_env(os.environ.get("MCP_ALLOWED_HOSTS", ""))
+    env_origins = _parse_csv_env(os.environ.get("MCP_ALLOWED_ORIGINS", ""))
+
+    if env_hosts:
+        allowed_hosts.update(env_hosts)
+    else:
+        allowed_hosts.add("mcp-server:*")
+
+    if env_origins:
+        allowed_origins.update(env_origins)
+    else:
+        allowed_origins.add("http://mcp-server:*")
+
+    ts.allowed_hosts = sorted(allowed_hosts)
+    ts.allowed_origins = sorted(allowed_origins)
+
+    logger.info("MCP transport security configured; allowed_hosts=%s", ts.allowed_hosts)
 
 
 # --- Helpers ---
@@ -329,8 +371,14 @@ async def prd_create_section(
     slug_err = validate_slug(slug)
     if slug_err:
         return err(slug_err)
-    if section_type not in VALID_SECTION_TYPES:
-        return err(f"invalid section_type '{section_type}', must be one of {sorted(VALID_SECTION_TYPES)}")
+    normalized_section_type = SECTION_TYPE_ALIASES.get(
+        (section_type or "").strip().lower(),
+        (section_type or "").strip().lower(),
+    )
+    if normalized_section_type not in VALID_SECTION_TYPES:
+        return err(
+            f"invalid section_type '{section_type}', must be one of {sorted(VALID_SECTION_TYPES)}"
+        )
     try:
         pool = await get_pool()
         pid = await resolve_project_id(pool, project)
@@ -349,11 +397,26 @@ async def prd_create_section(
             INSERT INTO sections (project_id, parent_section_id, slug, title, section_type,
                                   sort_order, content, summary, tags, notes)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING slug, title, section_type, status, sort_order, tags, word_count, created_at
-        """, pid, parent_id, slug, title, section_type, sort_order, content, summary,
+            RETURNING id, slug, title, section_type, status, sort_order, tags, word_count, created_at
+        """, pid, parent_id, slug, title, normalized_section_type, sort_order, content, summary,
             tags or [], notes)
+
+        await pool.execute(
+            """
+            INSERT INTO section_revisions (section_id, revision_number, content, summary, change_description)
+            VALUES ($1, 1, $2, $3, $4)
+            ON CONFLICT (section_id, revision_number) DO NOTHING
+            """,
+            row["id"],
+            content,
+            summary,
+            "Initial section creation",
+        )
+
+        created = row_to_dict(row)
+        created.pop("id", None)
         logger.info("Created section: %s/%s", project, slug)
-        return ok({"created": row_to_dict(row)})
+        return ok({"created": created})
     except asyncpg.UniqueViolationError:
         return err(f"section '{slug}' already exists in project '{project}'")
     except Exception as e:
@@ -1478,6 +1541,7 @@ if __name__ == "__main__":
         logger.info("Starting HTTP transport on port %d", args.http)
         mcp.settings.host = "0.0.0.0"
         mcp.settings.port = args.http
+        configure_http_transport_security()
         mcp.run(transport="streamable-http")
     else:
         logger.info("Starting stdio transport")

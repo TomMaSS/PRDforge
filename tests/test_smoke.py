@@ -27,6 +27,7 @@ class TestMCPLiveness:
                 "clientInfo": {"name": "smoke-test", "version": "0.1"}
             }},
             headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
+            follow_redirects=True,
         )
         assert resp.status_code == 200
 

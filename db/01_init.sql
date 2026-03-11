@@ -59,6 +59,23 @@ CREATE TABLE section_dependencies (
     CHECK (section_id != depends_on_id)
 );
 
+CREATE TABLE project_chats (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id  UUID        NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    updated_at  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE chat_messages (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    chat_id      UUID        NOT NULL REFERENCES project_chats(id) ON DELETE CASCADE,
+    role         TEXT        NOT NULL,
+    content      TEXT        NOT NULL DEFAULT '',
+    metadata     JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    created_at   TIMESTAMPTZ DEFAULT now(),
+    CHECK (role IN ('user', 'assistant', 'system', 'tool'))
+);
+
 -- Indexes
 CREATE INDEX idx_sections_project   ON sections(project_id);
 CREATE INDEX idx_sections_parent    ON sections(parent_section_id);
@@ -71,6 +88,8 @@ CREATE INDEX idx_deps_depends_on    ON section_dependencies(depends_on_id);
 CREATE INDEX idx_sections_tags      ON sections USING gin(tags);
 CREATE INDEX idx_deps_project_section ON section_dependencies(project_id, section_id);
 CREATE INDEX idx_deps_project_depends ON section_dependencies(project_id, depends_on_id);
+CREATE INDEX idx_project_chats_project ON project_chats(project_id);
+CREATE INDEX idx_chat_messages_chat_created ON chat_messages(chat_id, created_at);
 
 -- Full-text search
 CREATE INDEX idx_sections_fts ON sections
@@ -93,6 +112,10 @@ CREATE TRIGGER sections_updated_at
 
 CREATE TRIGGER projects_updated_at
     BEFORE UPDATE ON projects
+    FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+CREATE TRIGGER project_chats_updated_at
+    BEFORE UPDATE ON project_chats
     FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 -- Views

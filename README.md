@@ -28,7 +28,7 @@ Claude always has enough context to make informed edits without paying for the e
 - **Dependency-aware context** — sections know what they depend on. When Claude reads one, it automatically gets summaries of upstream sections for context.
 - **Full revision history** — every content change creates a revision. Roll back any section to any point. No content is ever lost.
 - **Google Docs-style comments** — leave inline comments anchored to specific text, Claude reads them, implements changes, resolves them. Threaded replies included.
-- **Web UI** — browse your specs, leave comments, view the dependency graph, toggle dark/light theme. No editing through the UI — that's Claude's job.
+- **Web UI** — browse specs, leave comments, create new projects, use always-visible project Claude chat, attach selected section text and local files as context, view dependency graph, toggle dark/light theme.
 - **One command to install** — `./install.sh` handles Docker, MCP config, and validation in ~15 seconds.
 
 ## Architecture
@@ -37,14 +37,14 @@ Claude always has enough context to make informed edits without paying for the e
 graph LR
     A[Claude.ai / Claude Code / Claude Desktop] <-->|MCP Protocol| B[MCP Server<br/>FastMCP/Python<br/>:8080]
     B <-->|asyncpg| C[(PostgreSQL 16<br/>sections, revisions<br/>dependencies, comments)]
-    D[Web UI<br/>FastAPI<br/>:8088] <-->|read + comments| C
+    D[Web UI<br/>FastAPI<br/>:8088] <-->|read + comments + chat memory| C
     A -.->|reads comments| D
 ```
 
 Three Docker services, all localhost-only:
-- **PostgreSQL 16** — source of truth (8 tables, 2 views)
-- **MCP Server** — 28 tools for Claude integration (stdio + HTTP transports)
-- **Web UI** — browser interface with inline comments, dependency graph, dark/light theme
+- **PostgreSQL 16** — source of truth (10 tables, 2 views)
+- **MCP Server** — 31 tools for Claude integration (stdio + HTTP transports)
+- **Web UI** — browser interface with project switching/creation, inline comments, always-visible project chat (with selection context), dependency graph, dark/light theme
 
 ## Quick Start
 
@@ -70,6 +70,9 @@ POSTGRES_PORT=5433 ./install.sh # Override host PostgreSQL port
 
 If `5432` is already in use, `install.sh` automatically picks the first free port in `5433-5500` and configures it for Docker + Claude Desktop.
 
+For Claude Desktop setup, `install.sh` now auto-selects a compatible Python interpreter (`3.10-3.13`) for `mcp_server/.venv` and recreates that venv if it was previously created with an unsupported Python (for example, `3.14`).
+
+Web UI chat can run through Claude CLI (`CHAT_PROVIDER=claude_cli`, default) or Anthropic API (`CHAT_PROVIDER=anthropic_api`).
 The stack starts in ~15 seconds. PostgreSQL seeds a sample "SnapHabit" project (12 sections, 12 dependencies) on first boot — a mobile habit-tracking app with AWS serverless backend. Edit or delete the seed data to start your own PRD.
 
 After install, restart your Claude client. Web UI: http://localhost:8088
@@ -160,9 +163,41 @@ Google Docs-style comments anchored to specific text in any section:
 
 Workflow: leave comments → ask Claude to check feedback → Claude calls `prd_list_comments` to see which sections have comments → reads only those sections → implements changes → resolves comments.
 
+## Web UI Claude Chat
+
+Project-level chat is always visible in the Web UI right dock:
+
+- One persistent thread per project, stored in PostgreSQL (`project_chats`, `chat_messages`)
+- Streaming responses in the browser (`text/event-stream`)
+- Optional selection context: highlight text in a section and your next chat message includes that exact snippet (plus nearby prefix/suffix context)
+- Selected context is rendered inside user chat bubbles, so each change request is visibly scoped
+- Optional file attachments in chat composer (name/type/size + text content), persisted in `chat_messages.metadata.attachments` and rehydrated into future model history turns
+- After each completed assistant turn, the UI live-refreshes project/section data to reflect agent-applied updates
+- In Claude CLI mode with manual permission prompts, approval-required requests are emitted as dedicated chat events and shown inline in the chat dock
+- Approval cards include an **Approve and continue** action that re-runs the blocked turn with elevated CLI permission mode for that turn
+- Project detail auto-backfills missing initial section history snapshots; for chat-generated projects with no dependency graph, the UI backfills a simple linear dependency chain so Dependencies/Changelog tabs are not empty
+- Default provider uses local `claude` command in the UI container (`CHAT_PROVIDER=claude_cli`)
+- API-key fallback remains available (`CHAT_PROVIDER=anthropic_api` + `ANTHROPIC_API_KEY`)
+- Provider can be overridden per project in **Settings → Chat provider** (takes effect on the next message)
+
+### Chat Provider Env
+
+- `CHAT_PROVIDER=claude_cli` — run chat via terminal command `claude`
+- `CLAUDE_CLI_PATH` — command path override (default `claude`)
+- `CLAUDE_CLI_APPROVAL_PERMISSION_MODE` — permission mode used by **Approve and continue** (default `acceptEdits`; legacy `dontAsk` maps to this)
+- `CLAUDE_CLI_MODEL` — optional model flag passed to CLI
+- `CLAUDE_CLI_ARGS` — optional extra CLI args
+- `CHAT_MAX_ATTACHMENTS` — max files per chat turn (default `5`)
+- `CHAT_ATTACHMENT_MAX_BYTES` — max size per file payload (default `200000`)
+- `CHAT_ATTACHMENT_MAX_CHARS` — max extracted text per file (default `12000`)
+- `CHAT_ATTACHMENTS_MAX_TOTAL_CHARS` — max combined attachment text per turn (default `40000`)
+- `CHAT_PROVIDER=anthropic_api` — use direct Anthropic API (`ANTHROPIC_API_KEY` required)
+
+The `token-stats` API also includes project-level counts (`sections`, `dependencies`, `revisions`) so the Stats view remains meaningful even when token-estimate operations are low.
+
 ## Data Model & Reference
 
-8 tables, 2 views. See **[docs/data-model.md](docs/data-model.md)** for the full ER diagram, dependency types, tags, statuses, and the SnapHabit example dependency graph.
+10 tables, 2 views. See **[docs/data-model.md](docs/data-model.md)** for the full ER diagram, dependency types, tags, statuses, and the SnapHabit example dependency graph.
 
 ## Seed Data
 
@@ -233,7 +268,8 @@ PRDforge/
 │   ├── 02_seed.sql
 │   ├── 03_comments.sql
 │   ├── 04_replies_and_settings.sql
-│   └── 05_token_stats.sql
+│   ├── 05_token_stats.sql
+│   └── 06_chat.sql
 ├── shared/
 │   ├── __init__.py
 │   └── settings.py
