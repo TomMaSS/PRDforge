@@ -29,7 +29,7 @@ import socket, sys
 port = int(sys.argv[1])
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
-  s.bind(("0.0.0.0", port))
+  s.bind(("127.0.0.1", port))
 except OSError:
   sys.exit(1)
 finally:
@@ -50,7 +50,7 @@ end_port = int(sys.argv[2])
 for port in range(start_port, end_port + 1):
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   try:
-    s.bind(("0.0.0.0", port))
+    s.bind(("127.0.0.1", port))
     print(port)
     sys.exit(0)
   except OSError:
@@ -180,6 +180,15 @@ else
 fi
 export POSTGRES_PORT
 
+# Persist to .env so `docker compose up -d` works without install.sh
+ENV_FILE="$SCRIPT_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+  # Remove old POSTGRES_PORT line if present, then append
+  grep -v '^POSTGRES_PORT=' "$ENV_FILE" > "$ENV_FILE.tmp" || true
+  mv "$ENV_FILE.tmp" "$ENV_FILE"
+fi
+echo "POSTGRES_PORT=$POSTGRES_PORT" >> "$ENV_FILE"
+
 ok "Prerequisites OK"
 info "Using PostgreSQL host port: $POSTGRES_PORT"
 
@@ -273,6 +282,9 @@ echo ""
 if [ "$MODE" = "code" ]; then
   info "Configuring Claude Code ($CONFIG_FILE)..."
 
+  # Claude Code connects to MCP server via HTTP; the MCP server runs in Docker
+  # and reaches PostgreSQL via the internal Docker network (postgres:5432),
+  # so POSTGRES_PORT (host mapping) is not needed here.
   MCP_ENTRY="{\"$MCP_SERVER_NAME\": {\"type\": \"http\", \"url\": \"http://localhost:8080/mcp/\"}}"
   json_set_mcp "$CONFIG_FILE" "$MCP_ENTRY"
   ok "Claude Code MCP config written"
