@@ -1,3 +1,14 @@
+[project]
+name = "prdforge"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "asyncpg>=0.29",
+    "mcp[cli]>=1.9",
+    "pydantic>=2.10",
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"

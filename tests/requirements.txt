@@ -1,8 +1,8 @@
-pytest==8.3.4
-pytest-asyncio==0.24.0
-httpx==0.28.1
-asyncpg==0.30.0
-mcp[cli]==1.9.2
-pydantic==2.11.3
-fastapi==0.115.12
-uvicorn==0.34.2
+pytest>=8.3
+pytest-asyncio>=0.24
+httpx>=0.28
+asyncpg>=0.29
+mcp[cli]>=1.9
+pydantic>=2.10
+fastapi>=0.115
+uvicorn>=0.34
