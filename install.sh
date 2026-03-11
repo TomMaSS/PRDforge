@@ -38,6 +38,28 @@ sys.exit(0)
 PY
 }
 
+select_desktop_python() {
+  local candidates=("python3.13" "python3.12" "python3.11" "python3.10" "python3")
+  local candidate version major minor
+
+  for candidate in "${candidates[@]}"; do
+    if ! command -v "$candidate" >/dev/null 2>&1; then
+      continue
+    fi
+
+    version=$("$candidate" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null || true)
+    major="${version%%.*}"
+    minor="${version#*.}"
+
+    if [[ "$major" = "3" ]] && [[ "$minor" =~ ^[0-9]+$ ]] && [ "$minor" -ge 10 ] && [ "$minor" -le 13 ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 find_available_port() {
   local start_port="$1"
   local end_port="$2"
@@ -293,11 +315,24 @@ elif [ "$MODE" = "desktop" ]; then
   info "Configuring Claude Desktop ($CONFIG_FILE)..."
 
   # Create venv for stdio transport
+  DESKTOP_PYTHON=$(select_desktop_python || true)
+  [ -n "$DESKTOP_PYTHON" ] || die "Claude Desktop setup requires Python 3.10-3.13 for current dependencies. Install python3.13 (recommended) and rerun install.sh."
+
   VENV_DIR="$SCRIPT_DIR/mcp_server/.venv"
-  if [ ! -d "$VENV_DIR" ]; then
-    info "Creating Python venv..."
-    python3 -m venv "$VENV_DIR"
+  if [ -d "$VENV_DIR" ]; then
+    existing_version=$("$VENV_DIR/bin/python" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null || echo "unknown")
+    existing_minor="${existing_version#*.}"
+    if [[ ! "$existing_minor" =~ ^[0-9]+$ ]] || [ "$existing_minor" -lt 10 ] || [ "$existing_minor" -gt 13 ]; then
+      warn "Existing venv uses unsupported Python ${existing_version}; recreating with ${DESKTOP_PYTHON}."
+      rm -rf "$VENV_DIR"
+    fi
   fi
+
+  if [ ! -d "$VENV_DIR" ]; then
+    info "Creating Python venv with ${DESKTOP_PYTHON}..."
+    "$DESKTOP_PYTHON" -m venv "$VENV_DIR"
+  fi
+
   info "Installing MCP server dependencies..."
   "$VENV_DIR/bin/pip" install -q -r "$SCRIPT_DIR/mcp_server/requirements.txt"
   ok "Python venv ready"

@@ -145,6 +145,7 @@ python -m venv .venv && .venv/bin/pip install -r tests/requirements.txt
 - **Shared settings module:** `shared/settings.py` is the single source of truth for `SETTINGS_SCHEMA` and `validate_settings()`. Both `server.py` and `app.py` import from it via `sys.path.insert(0, "..")`
 - `prd_update_section` supports `resolve_comments` param — atomically resolves comments + auto-replies if `claude_comment_replies` setting is enabled
 - `install.sh` now auto-selects a free host PostgreSQL port (`5432`, else first free in `5433-5500`) and exports `POSTGRES_PORT` so Docker + Claude Desktop config stay in sync
+- Claude Desktop setup in `install.sh` requires Python `3.10-3.13` for current dependencies; the script auto-selects a compatible interpreter and recreates `mcp_server/.venv` if it was built with an unsupported version (e.g., `3.14`)
 
 ## Residual Risks
 

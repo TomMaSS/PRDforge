@@ -70,6 +70,8 @@ POSTGRES_PORT=5433 ./install.sh # Override host PostgreSQL port
 
 If `5432` is already in use, `install.sh` automatically picks the first free port in `5433-5500` and configures it for Docker + Claude Desktop.
 
+For Claude Desktop setup, `install.sh` now auto-selects a compatible Python interpreter (`3.10-3.13`) for `mcp_server/.venv` and recreates that venv if it was previously created with an unsupported Python (for example, `3.14`).
+
 The stack starts in ~15 seconds. PostgreSQL seeds a sample "SnapHabit" project (12 sections, 12 dependencies) on first boot — a mobile habit-tracking app with AWS serverless backend. Edit or delete the seed data to start your own PRD.
 
 After install, restart your Claude client. Web UI: http://localhost:8088
@@ -102,7 +104,7 @@ Start services: `docker compose up -d`
 1. Install Python dependencies:
    ```bash
    cd PRDforge/mcp_server
-   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+  python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
    ```
 
 2. Open Claude Desktop → **Settings → Developer → Edit Config**:
