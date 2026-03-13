@@ -16,6 +16,8 @@ services:
       - ./db/02_seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
       - ./db/03_comments.sql:/docker-entrypoint-initdb.d/03_comments.sql:ro
       - ./db/04_replies_and_settings.sql:/docker-entrypoint-initdb.d/04_replies_and_settings.sql:ro
+      - ./db/05_token_stats.sql:/docker-entrypoint-initdb.d/05_token_stats.sql:ro
+      - ./db/06_chat.sql:/docker-entrypoint-initdb.d/06_chat.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prdforge}"]
       interval: 3s
@@ -45,6 +47,17 @@ services:
     image: ghcr.io/tommass/prdforge-ui:${PRDFORGE_VERSION:-latest}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-prdforge}:${POSTGRES_PASSWORD:-prdforge}@postgres:5432/${POSTGRES_DB:-prdforge}
+      CHAT_PROVIDER: ${CHAT_PROVIDER:-claude_cli}
+      CHAT_MCP_URL: ${CHAT_MCP_URL:-http://mcp-server:8080/mcp/}
+      CLAUDE_CLI_PERMISSION_MODE: ${CLAUDE_CLI_PERMISSION_MODE:-acceptEdits}
+      CLAUDE_CLI_APPROVAL_PERMISSION_MODE: ${CLAUDE_CLI_APPROVAL_PERMISSION_MODE:-acceptEdits}
+      CLAUDE_CLI_MODEL: ${CLAUDE_CLI_MODEL:-}
+      CLAUDE_CLI_ARGS: ${CLAUDE_CLI_ARGS:-}
+      CLAUDE_CLI_PATH: ${CLAUDE_CLI_PATH:-claude}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-3-7-sonnet-latest}
+    volumes:
+      - ${HOME}/.claude:/root/.claude
     ports:
       - "127.0.0.1:8088:8088"
     depends_on:

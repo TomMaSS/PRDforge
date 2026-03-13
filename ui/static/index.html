@@ -47,7 +47,12 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 .sidebar-header h1{font-size:18px;font-weight:700;margin-bottom:4px}
 .sidebar-header .meta{font-size:12px;color:var(--text-sec)}
 .sidebar-header select{width:100%;margin-top:8px;padding:6px 8px;background:var(--secondary);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px}
-.sidebar-header .export-btn{display:inline-block;margin-top:8px;padding:4px 12px;background:var(--accent);color:#fff;border-radius:6px;font-size:12px;text-decoration:none;font-weight:500}
+.sidebar-header .project-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
+.sidebar-header .project-btn{display:flex;align-items:center;justify-content:center;min-height:34px;padding:0 10px;border-radius:8px;font-size:11px;text-decoration:none;font-weight:600;white-space:nowrap;border:1px solid transparent;transition:all .15s}
+.sidebar-header .project-btn.primary{background:var(--accent);color:#fff}
+.sidebar-header .project-btn.primary:hover{opacity:.9}
+.sidebar-header .project-btn.secondary{background:var(--secondary);border-color:var(--border);color:var(--text)}
+.sidebar-header .project-btn.secondary:hover{border-color:var(--accent);color:var(--text)}
 .filters{padding:8px 12px;display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--border);align-items:center}
 .chip{padding:2px 8px;border-radius:12px;font-size:11px;cursor:pointer;border:1px solid var(--border);color:var(--text-sec);transition:all .15s}
 .chip:hover,.chip.active{border-color:var(--accent);color:var(--accent)}
@@ -79,6 +84,10 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 .main{flex:1;overflow-y:auto;padding:40px 56px;display:flex;justify-content:center;position:relative}
 .main.graph-mode{padding:0;overflow:hidden}
 .content-wrap{max-width:780px;width:100%}
+.chat-dock{width:380px;min-width:380px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.chat-header{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.chat-header h3{font-size:13px;font-weight:600;color:var(--text)}
+.chat-header .chat-meta{font-size:11px;color:var(--text-muted)}
 .section-title{font-size:26px;font-weight:700;margin-bottom:8px;color:var(--text)}
 .meta-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;font-size:13px;color:var(--text-sec)}
 .meta-row .badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;color:#fff}
@@ -205,6 +214,54 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 .reply-form textarea{flex:1;min-height:36px;background:var(--secondary);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-family:'Inter',sans-serif;font-size:12px;resize:vertical}
 .reply-form button{padding:4px 10px;border-radius:4px;font-size:11px;font-weight:500;cursor:pointer;border:none;background:var(--accent);color:#fff}
 
+/* Chat */
+.chat-panel{display:flex;flex-direction:column;height:100%;min-height:0}
+.chat-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+.chat-empty{padding:24px 12px;color:var(--text-muted);font-size:13px;line-height:1.6}
+.chat-bubble{max-width:92%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);font-size:13px;line-height:1.55;word-break:break-word}
+.chat-bubble.user{align-self:flex-end;background:var(--accent);border-color:var(--accent);color:#fff}
+.chat-bubble.assistant{align-self:flex-start;background:var(--secondary);color:var(--text)}
+.chat-bubble.system{align-self:flex-start;background:var(--surface);color:var(--text-sec)}
+.chat-msg-context{margin-bottom:8px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.12)}
+.chat-msg-context-head{font-size:11px;font-weight:600;opacity:0.95;margin-bottom:4px}
+.chat-msg-context-body{font-size:12px;line-height:1.45;opacity:0.98;white-space:pre-wrap}
+.chat-bubble.assistant .chat-msg-context,.chat-bubble.system .chat-msg-context{border-color:var(--border-muted);background:var(--surface)}
+.chat-tools{align-self:flex-start;background:var(--surface);border:1px dashed var(--border);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--text-sec);max-width:92%}
+.chat-tools .tool-item{padding:3px 0;border-bottom:1px solid var(--border)}
+.chat-tools .tool-item:last-child{border-bottom:none}
+.chat-approval{align-self:flex-start;background:rgba(245,158,11,0.12);border:1px solid var(--review);color:var(--review);padding:8px 10px;border-radius:8px;font-size:12px;max-width:92%}
+.chat-approval .approval-title{font-weight:700;margin-bottom:4px}
+.chat-approval .approval-tool{font-family:'JetBrains Mono',monospace;font-size:11px;opacity:0.95;margin-bottom:4px}
+.chat-approval .approval-msg{line-height:1.45;color:var(--text)}
+.chat-approval .approval-action{margin-top:8px;padding:6px 10px;border-radius:6px;border:none;background:var(--review);color:#fff;font-size:11px;font-weight:600;cursor:pointer}
+.chat-approval .approval-action[disabled]{opacity:0.55;cursor:not-allowed}
+.chat-error{align-self:flex-start;background:rgba(239,68,68,0.12);border:1px solid var(--outdated);color:var(--outdated);padding:8px 10px;border-radius:8px;font-size:12px;max-width:92%}
+.chat-compose{border-top:1px solid var(--border);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.chat-compose textarea{width:100%;min-height:76px;max-height:220px;background:var(--secondary);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:'Inter',sans-serif;font-size:13px;line-height:1.5;resize:vertical}
+.chat-compose textarea:focus{outline:none;border-color:var(--accent)}
+.chat-context{border:1px solid var(--border);border-radius:8px;background:var(--secondary);padding:8px 10px;font-size:12px;color:var(--text-sec)}
+.chat-context-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:11px;color:var(--text-muted)}
+.chat-context-text{line-height:1.45;color:var(--text);white-space:pre-wrap;max-height:96px;overflow-y:auto}
+.chat-attachments{border:1px solid var(--border);border-radius:8px;background:var(--secondary);padding:8px 10px;font-size:12px;color:var(--text-sec)}
+.chat-attachments-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:11px;color:var(--text-muted)}
+.chat-attachments-list{display:flex;flex-direction:column;gap:6px;max-height:124px;overflow-y:auto}
+.chat-attachment-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px}
+.chat-attachment-main{min-width:0;display:flex;flex-direction:column;gap:2px}
+.chat-attachment-name{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px}
+.chat-attachment-size{font-size:10px;color:var(--text-muted)}
+.chat-attachment-remove{background:none;border:none;color:var(--outdated);cursor:pointer;font-size:11px;font-weight:600;padding:0}
+.chat-msg-attachments{margin-bottom:8px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.12)}
+.chat-msg-attachments-head{font-size:11px;font-weight:600;opacity:0.95;margin-bottom:4px}
+.chat-msg-attachment-row{font-size:12px;line-height:1.4;opacity:0.98}
+.chat-msg-attachment-row+.chat-msg-attachment-row{margin-top:3px}
+.chat-context-clear{background:none;border:none;color:var(--accent);cursor:pointer;font-size:11px;font-weight:600;padding:0}
+.chat-compose-actions{display:flex;justify-content:flex-end;gap:8px}
+.chat-compose-actions button{border:none;border-radius:6px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:opacity .15s}
+.chat-compose-actions button:hover{opacity:0.88}
+.chat-clear{background:var(--secondary);color:var(--text);border:1px solid var(--border) !important}
+.chat-send{background:var(--accent);color:#fff}
+.chat-send[disabled]{opacity:0.5;cursor:not-allowed}
+
 /* Settings panel */
 .settings-panel{padding:0;overflow-y:auto;flex:1}
 .settings-title{padding:14px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text)}
@@ -212,6 +269,8 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 .setting-info{flex:1;min-width:0}
 .setting-info label{font-size:12px;font-weight:500;color:var(--text);cursor:pointer;display:block}
 .setting-info .setting-desc{font-size:10px;color:var(--text-muted);margin-top:2px}
+.setting-select{min-width:150px;padding:6px 8px;background:var(--secondary);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit}
+.setting-select:focus{outline:none;border-color:var(--accent)}
 .toggle{position:relative;width:36px;min-width:36px;height:20px;cursor:pointer;flex-shrink:0}
 .toggle input{opacity:0;width:0;height:0}
 .toggle .slider{position:absolute;inset:0;background:var(--secondary);border-radius:10px;transition:.2s;border:1px solid var(--border)}
@@ -298,9 +357,10 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
     <h1 id="projName">PRD Forge</h1>
     <div class="meta" id="projMeta"></div>
     <select id="projSelect" onchange="switchProject(this.value)"></select>
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <a class="export-btn" id="exportBtn" href="#" download>Export</a>
-      <a class="export-btn" href="#" onclick="loadFullPRD();return false" style="background:var(--secondary);border:1px solid var(--border)">View Full PRD</a>
+    <div class="project-actions">
+      <a class="project-btn secondary" href="#" onclick="createProjectPrompt();return false">New Project</a>
+      <a class="project-btn primary" id="exportBtn" href="#" download>Export</a>
+      <a class="project-btn secondary" href="#" onclick="loadFullPRD();return false">View PRD</a>
     </div>
   </div>
   <div class="tab-content active" id="tab-sections">
@@ -333,6 +393,53 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
           <span class="slider"></span>
         </label>
       </div>
+      <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+        <div style="font-size:14px;font-weight:600;color:#f59e0b;margin-bottom:4px">Experimental Features</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">Preview features that may change or be removed</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <label for="settingChatEnabled">Chat Integration</label>
+            <div class="setting-desc">Always-visible AI chat dock for project assistance</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="settingChatEnabled" onchange="saveSetting('chat_enabled',this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div id="chatProviderRow" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border)">
+          <label for="settingChatProvider" style="font-size:12px;font-weight:500;color:var(--text);display:block;margin-bottom:6px">Chat provider</label>
+          <select id="settingChatProvider" class="setting-select" style="width:100%" onchange="saveSetting('chat_provider',this.value)">
+            <option value="claude_cli">Claude CLI</option>
+            <option value="anthropic_api">Anthropic API</option>
+          </select>
+        </div>
+        <div id="chatModelRow" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border)">
+          <label for="settingChatModel" style="font-size:12px;font-weight:500;color:var(--text);display:block;margin-bottom:6px">Model</label>
+          <select id="settingChatModel" class="setting-select" style="width:100%" onchange="saveSetting('chat_model',this.value)">
+            <option value="sonnet">Sonnet 4.6</option>
+            <option value="opus">Opus 4.6</option>
+            <option value="haiku">Haiku 4.5</option>
+          </select>
+        </div>
+        <div id="chatProviderStatus" style="display:none;padding:8px 16px;font-size:11px;color:var(--text-muted)"></div>
+        <div id="chatCliLoginRow" style="display:none;padding:4px 16px 8px">
+          <button id="chatCliLoginBtn" onclick="startCliLogin()" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:11px;cursor:pointer;width:100%">Login Claude CLI</button>
+          <div id="chatCliLoginInfo" style="font-size:11px;color:var(--text-muted);margin-top:6px;word-break:break-all"></div>
+          <div id="chatCliCodeRow" style="display:none;margin-top:8px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Paste the authentication code:</div>
+            <input type="text" id="chatCliCodeInput" placeholder="Paste code here..." style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;font-family:monospace;margin-bottom:6px;box-sizing:border-box">
+            <button onclick="submitCliCode()" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--primary);color:#fff;font-size:11px;cursor:pointer;width:100%">Submit Code</button>
+          </div>
+        </div>
+        <div id="chatApiKeyRow" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border)">
+          <label for="chatApiKeyInput" style="font-size:12px;font-weight:500;color:var(--text);display:block;margin-bottom:2px">Anthropic API Key</label>
+          <div id="chatApiKeyHint" style="font-size:10px;color:var(--text-muted);margin-bottom:6px">Required for Anthropic API provider</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="password" id="chatApiKeyInput" placeholder="sk-ant-..." style="flex:1;min-width:0;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;box-sizing:border-box">
+            <button onclick="saveApiKey()" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:11px;cursor:pointer;white-space:nowrap">Save</button>
+          </div>
+        </div>
+      </div>
       <div class="settings-note">Settings are per-project and synced with MCP tools. Changes take effect immediately.</div>
     </div>
   </div>
@@ -340,6 +447,38 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 <div class="main">
   <div class="content-wrap" id="mainContent">
     <div class="empty">Select a section to view</div>
+  </div>
+</div>
+<div class="chat-dock" style="display:none">
+  <div class="chat-header">
+    <h3>Project Chat</h3>
+    <div class="chat-meta" id="chatProviderMeta">Claude CLI</div>
+  </div>
+  <div class="chat-panel">
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-compose">
+      <div class="chat-context" id="chatContext" style="display:none">
+        <div class="chat-context-meta">
+          <span id="chatContextMeta"></span>
+          <button class="chat-context-clear" onclick="clearChatSelectionContext()">Clear</button>
+        </div>
+        <div class="chat-context-text" id="chatContextText"></div>
+      </div>
+      <div class="chat-attachments" id="chatAttachments" style="display:none">
+        <div class="chat-attachments-meta">
+          <span id="chatAttachmentsMeta"></span>
+          <button class="chat-context-clear" onclick="clearChatAttachments()">Clear</button>
+        </div>
+        <div class="chat-attachments-list" id="chatAttachmentsList"></div>
+      </div>
+      <input id="chatFileInput" type="file" multiple style="display:none" onchange="handleChatFilesSelected(event)">
+      <textarea id="chatInput" placeholder="Ask Claude about this project..." onkeydown="handleChatKeydown(event)"></textarea>
+      <div class="chat-compose-actions">
+        <button class="chat-clear" onclick="openChatFilePicker()">Attach files</button>
+        <button class="chat-clear" onclick="clearChat()">Clear</button>
+        <button class="chat-send" id="chatSendBtn" onclick="sendChatMessage()">Send</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -372,17 +511,130 @@ marked.setOptions({renderer});
 const STATUS_COLORS={approved:'var(--approved)',review:'var(--review)',in_progress:'var(--in_progress)',draft:'var(--draft)',outdated:'var(--outdated)'};
 let currentProject=null,projectData=null,activeSection=null,activeFilter=null;
 let activeTab='sections',mainViewMode='empty',_statsCache=null;
+let chatMessages=[],chatDraft='',chatStreaming=false,chatToolEvents=[],chatError='';
+let chatApprovals=[];
+let chatApprovalPendingId='';
+let chatSelectionContext=null;
+let chatPendingAttachments=[];
+let chatTurnCompleted=false;
+let chatEnabled=false;
+let chatStreamAbort=null;
+let liveRefreshRunning=false;
+let liveRefreshPending=false;
+const CHAT_MAX_ATTACHMENTS=5;
+const CHAT_ATTACHMENT_MAX_BYTES=200000;
+const CHAT_ATTACHMENT_MAX_CHARS=12000;
+const CHAT_ATTACHMENTS_MAX_TOTAL_CHARS=40000;
+const MUTATING_TOOL_NAMES=new Set([
+  'prd_create_section','prd_update_section','prd_delete_section','prd_move_section','prd_duplicate_section',
+  'prd_bulk_status','prd_import_markdown','prd_rollback_section','prd_add_comment','prd_delete_comment',
+  'prd_resolve_comment','prd_add_comment_reply','prd_add_dependency','prd_remove_dependency'
+]);
 
-async function init(){
+function canonicalToolName(name){
+  const raw=String(name||'').trim();
+  if(!raw)return '';
+  const parts=raw.split('__');
+  return parts[parts.length-1]||raw;
+}
+
+function hasMutatingToolEvents(toolEvents){
+  if(!Array.isArray(toolEvents))return false;
+  return toolEvents.some(t=>MUTATING_TOOL_NAMES.has(canonicalToolName(t&&t.name)));
+}
+
+function shouldRefreshAfterAssistantMessage(message){
+  if(!message||message.role!=='assistant')return false;
+  const metadata=message.metadata||{};
+  if(!hasMutatingToolEvents(metadata.tool_events))return false;
+  const approvals=Array.isArray(metadata.approval_requests)?metadata.approval_requests:[];
+  if(approvals.length&&metadata.approval_resolved===false)return false;
+  return true;
+}
+
+function slugifyProjectName(name){
+  return String(name||'').toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,100);
+}
+
+async function refreshProjectSelector(preferredSlug=''){
   const res=await fetch('/api/projects');
+  if(!res.ok)throw new Error('Failed to load projects');
   const projects=await res.json();
   const sel=document.getElementById('projSelect');
   sel.innerHTML=projects.map(p=>`<option value="${p.slug}">${p.name}</option>`).join('');
-  if(projects.length)switchProject(projects[0].slug);
+
+  if(!projects.length){
+    currentProject=null;
+    projectData=null;
+    document.getElementById('projName').textContent='PRD Forge';
+    document.getElementById('projMeta').textContent='No projects yet';
+    document.getElementById('mainContent').innerHTML='<div class="empty">Create a project to get started</div>';
+    return {projects,activeSlug:''};
+  }
+
+  let activeSlug=preferredSlug;
+  if(!activeSlug||!projects.some(p=>p.slug===activeSlug))activeSlug=projects[0].slug;
+  sel.value=activeSlug;
+  return {projects,activeSlug};
+}
+
+async function init(){
+  try{
+    const {activeSlug}=await refreshProjectSelector(currentProject||'');
+    if(activeSlug)await switchProject(activeSlug);
+  }catch(_){
+    document.getElementById('mainContent').innerHTML='<div class="empty">Failed to load projects</div>';
+  }
+}
+
+async function createProjectPrompt(){
+  const nameRaw=window.prompt('Project name');
+  if(nameRaw===null)return;
+  const name=String(nameRaw||'').trim();
+  if(!name){
+    window.alert('Project name is required');
+    return;
+  }
+
+  const suggestedSlug=slugifyProjectName(name);
+  const slugRaw=window.prompt('Project slug (lowercase letters, numbers, hyphens)',suggestedSlug);
+  if(slugRaw===null)return;
+  const slug=String(slugRaw||'').trim().toLowerCase();
+  if(!slug){
+    window.alert('Project slug is required');
+    return;
+  }
+
+  const descriptionRaw=window.prompt('Description (optional)','');
+  if(descriptionRaw===null)return;
+  const description=String(descriptionRaw||'').trim();
+
+  const res=await fetch('/api/projects',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name,slug,description})
+  });
+
+  if(!res.ok){
+    const err=await res.json().catch(()=>({error:'Failed to create project'}));
+    window.alert(err.error||'Failed to create project');
+    return;
+  }
+
+  await refreshProjectSelector(slug);
+  await switchProject(slug);
 }
 
 async function switchProject(slug){
+  const sel=document.getElementById('projSelect');
+  if(sel)sel.value=slug;
   _statsCache=null;mainViewMode='empty';
+  if(chatStreamAbort){chatStreamAbort.abort();chatStreamAbort=null;}
+  chatMessages=[];chatDraft='';chatStreaming=false;chatToolEvents=[];chatError='';
+  chatApprovals=[];
+  chatApprovalPendingId='';
+  chatSelectionContext=null;
+  chatPendingAttachments=[];
   currentProject=slug;
   const res=await fetch(`/api/projects/${slug}`);
   projectData=await res.json();
@@ -398,7 +650,58 @@ async function switchProject(slug){
   activeSection=null;activeFilter=null;activeTags=[];
   clearGraph();
   document.getElementById('mainContent').innerHTML='<div class="empty">Select a section to view</div>';
+  await loadSettings();
+  renderChatSelectionContext();
+  renderChatPendingAttachments();
+  if(chatEnabled)loadChatMessages();
   if(activeTab==='stats')loadTokenStats();
+}
+
+async function refreshProjectData(opts={}){
+  if(!currentProject)return;
+  const reloadActiveSection=opts.reloadActiveSection!==false;
+  try{
+    const res=await fetch(`/api/projects/${currentProject}`);
+    if(!res.ok)return;
+    projectData=await res.json();
+    document.getElementById('projName').textContent=projectData.project.name;
+    document.getElementById('projMeta').textContent=`v${projectData.project.version} · ${projectData.stats.sections} sections · ${projectData.stats.words} words`;
+    document.getElementById('exportBtn').href=`/api/projects/${currentProject}/export`;
+    document.getElementById('exportBtn').download=`${currentProject}.md`;
+    renderFilters();
+    renderSections();
+    renderChangelog();
+    renderDepsGraph();
+    if(activeTab==='comments')loadGlobalComments();
+    if(activeTab==='stats')loadTokenStats();
+    if(activeTab==='deps'&&mainViewMode==='graph')showMainGraph();
+
+    if(reloadActiveSection&&mainViewMode==='section'&&activeSection){
+      await loadSection(activeSection,{preserveSelectionContext:true});
+    }else if(mainViewMode==='fullprd'){
+      await loadFullPRD();
+    }
+  }catch(_){/* noop: live refresh is best-effort */}
+}
+
+function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+
+async function triggerLiveRefresh(){
+  if(!currentProject)return;
+  liveRefreshPending=true;
+  if(liveRefreshRunning)return;
+  liveRefreshRunning=true;
+  try{
+    while(liveRefreshPending){
+      liveRefreshPending=false;
+      for(let i=0;i<3;i++){
+        await refreshProjectData({reloadActiveSection:true});
+        if(i<2)await sleep(700);
+      }
+    }
+  }finally{
+    liveRefreshRunning=false;
+  }
 }
 
 let activeTags=[];
@@ -584,9 +887,10 @@ function showGraphPopup(node,e,wrap){
   wrap.appendChild(pop);
 }
 
-async function loadSection(slug){
+async function loadSection(slug,opts={}){
   clearGraph();
   activeSection=slug;mainViewMode='section';
+  if(!opts.preserveSelectionContext)clearChatSelectionContext();
   renderSections();
   const res=await fetch(`/api/projects/${currentProject}/sections/${slug}`);
   const data=await res.json();
@@ -666,6 +970,143 @@ async function saveNotes(slug){
 
 /* --- Inline comments --- */
 let _commentSelection=null;
+
+function setChatSelectionContext(range,text){
+  if(!activeSection||!projectData)return;
+  const anchor=getAnchorContext(range);
+  const sec=(projectData.sections||[]).find(s=>s.slug===activeSection)||{};
+  chatSelectionContext={
+    section_slug:activeSection,
+    section_title:sec.title||activeSection,
+    selected_text:text,
+    anchor_prefix:anchor.anchor_prefix||'',
+    anchor_suffix:anchor.anchor_suffix||''
+  };
+  renderChatSelectionContext();
+}
+
+function clearChatSelectionContext(){
+  chatSelectionContext=null;
+  renderChatSelectionContext();
+}
+
+function renderChatSelectionContext(){
+  const box=document.getElementById('chatContext');
+  const meta=document.getElementById('chatContextMeta');
+  const text=document.getElementById('chatContextText');
+  if(!box||!meta||!text)return;
+  if(!chatSelectionContext||!chatSelectionContext.selected_text){
+    box.style.display='none';
+    return;
+  }
+  const selected=chatSelectionContext.selected_text;
+  const preview=selected.length>420?selected.substring(0,420)+'…':selected;
+  meta.textContent=`Context: ${chatSelectionContext.section_title||chatSelectionContext.section_slug}`;
+  text.textContent=preview;
+  box.style.display='block';
+}
+
+function formatBytes(value){
+  const bytes=Number(value)||0;
+  if(bytes<1024)return `${bytes} B`;
+  if(bytes<1024*1024)return `${(bytes/1024).toFixed(1)} KB`;
+  return `${(bytes/(1024*1024)).toFixed(1)} MB`;
+}
+
+function chatAttachmentsTotalChars(items){
+  return (items||[]).reduce((sum,item)=>sum+String(item.content_text||'').length,0);
+}
+
+function openChatFilePicker(){
+  if(chatStreaming)return;
+  const input=document.getElementById('chatFileInput');
+  if(input)input.click();
+}
+
+function removeChatAttachment(index){
+  if(index<0||index>=chatPendingAttachments.length)return;
+  chatPendingAttachments.splice(index,1);
+  renderChatPendingAttachments();
+}
+
+function clearChatAttachments(){
+  chatPendingAttachments=[];
+  const input=document.getElementById('chatFileInput');
+  if(input)input.value='';
+  renderChatPendingAttachments();
+}
+
+function renderChatPendingAttachments(){
+  const box=document.getElementById('chatAttachments');
+  const meta=document.getElementById('chatAttachmentsMeta');
+  const list=document.getElementById('chatAttachmentsList');
+  if(!box||!meta||!list)return;
+  if(!chatPendingAttachments.length){
+    box.style.display='none';
+    return;
+  }
+  meta.textContent=`Files attached: ${chatPendingAttachments.length}`;
+  list.innerHTML=chatPendingAttachments.map((item,idx)=>{
+    const safeName=String(item.name||'file').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return `<div class="chat-attachment-item"><div class="chat-attachment-main"><div class="chat-attachment-name" title="${safeName}">${safeName}</div><div class="chat-attachment-size">${formatBytes(item.size_bytes)} · ${String(item.mime_type||'application/octet-stream')}</div></div><button class="chat-attachment-remove" onclick="removeChatAttachment(${idx})">Remove</button></div>`;
+  }).join('');
+  box.style.display='block';
+}
+
+async function handleChatFilesSelected(event){
+  const input=event&&event.target;
+  const files=input&&input.files?Array.from(input.files):[];
+  if(!files.length)return;
+
+  const next=[...chatPendingAttachments];
+  let totalChars=chatAttachmentsTotalChars(next);
+
+  for(const file of files){
+    if(next.length>=CHAT_MAX_ATTACHMENTS){
+      chatError=`Attachment limit exceeded (max ${CHAT_MAX_ATTACHMENTS})`;
+      break;
+    }
+    if(file.size>CHAT_ATTACHMENT_MAX_BYTES){
+      chatError=`File too large: ${file.name} (max ${formatBytes(CHAT_ATTACHMENT_MAX_BYTES)})`;
+      continue;
+    }
+
+    let content='';
+    try{
+      content=await file.text();
+    }catch(_){
+      chatError=`Failed to read file: ${file.name}`;
+      continue;
+    }
+
+    if(!content.trim()){
+      chatError=`File is empty: ${file.name}`;
+      continue;
+    }
+    if(content.length>CHAT_ATTACHMENT_MAX_CHARS){
+      chatError=`File text too long: ${file.name} (max ${CHAT_ATTACHMENT_MAX_CHARS} chars)`;
+      continue;
+    }
+    if(totalChars+content.length>CHAT_ATTACHMENTS_MAX_TOTAL_CHARS){
+      chatError=`Total attachment text is too large (max ${CHAT_ATTACHMENTS_MAX_TOTAL_CHARS} chars)`;
+      break;
+    }
+
+    totalChars+=content.length;
+    next.push({
+      name:file.name,
+      mime_type:file.type||'application/octet-stream',
+      size_bytes:file.size,
+      content_text:content
+    });
+  }
+
+  chatPendingAttachments=next;
+  if(input)input.value='';
+  renderChatPendingAttachments();
+  renderChatMessages();
+}
+
 document.addEventListener('mouseup',function(e){
   if(e.target.closest('.comment-btn')||e.target.closest('.comment-popover'))return;
   document.querySelectorAll('.comment-btn').forEach(b=>b.remove());
@@ -676,6 +1117,7 @@ document.addEventListener('mouseup',function(e){
   const text=sel.toString().trim();
   if(!text||text.length<3)return;
   const range=sel.getRangeAt(0);
+  setChatSelectionContext(range,text);
   _commentSelection={text,range:range.cloneRange()};
   const rect=range.getBoundingClientRect();
   const mainEl=document.querySelector('.main');
@@ -928,6 +1370,329 @@ async function loadFullPRD(){
   document.getElementById('mainContent').innerHTML=`<div class="section-title">Full PRD</div><div class="prose">${marked.parse(md)}</div>`;
 }
 
+/* --- Chat tab --- */
+function renderChatMessages(){
+  const container=document.getElementById('chatMessages');
+  if(!container)return;
+
+  const escapeHtml=(text)=>String(text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const renderSelectionContext=(metadata)=>{
+    const context=metadata&&metadata.selection_context;
+    if(!context||!context.selected_text)return '';
+    const section=context.section_title||context.section_slug||'Section';
+    const selected=String(context.selected_text||'');
+    const preview=selected.length>260?selected.substring(0,260)+'…':selected;
+    return `<div class="chat-msg-context"><div class="chat-msg-context-head">Context: ${escapeHtml(section)}</div><div class="chat-msg-context-body">${escapeHtml(preview)}</div></div>`;
+  };
+
+  const renderAttachments=(metadata)=>{
+    const items=metadata&&metadata.attachments;
+    if(!Array.isArray(items)||!items.length)return '';
+    const rows=items.map(item=>{
+      const name=escapeHtml(item&&item.name?item.name:'file');
+      const size=formatBytes(item&&item.size_bytes?item.size_bytes:0);
+      const mime=escapeHtml(item&&item.mime_type?item.mime_type:'application/octet-stream');
+      return `<div class="chat-msg-attachment-row">${name} · ${size} · ${mime}</div>`;
+    }).join('');
+    return `<div class="chat-msg-attachments"><div class="chat-msg-attachments-head">Files (${items.length})</div>${rows}</div>`;
+  };
+
+  const renderApprovals=(items,messageId,resolved)=>{
+    const normalized=Array.isArray(items)?items:(items?[items]:[]);
+    if(!normalized.length)return '';
+    return normalized.map(item=>{
+      const tool=escapeHtml(item&&item.tool?item.tool:'unknown');
+      const msg=escapeHtml(item&&item.message?item.message:'Manual approval required');
+      const canApprove=Boolean(messageId)&&!resolved;
+      const isPending=canApprove&&chatApprovalPendingId===messageId;
+      const buttonHtml=canApprove
+        ? `<button class="approval-action" onclick="approveChat('${messageId}')" ${isPending?'disabled':''}>${isPending?'Approving…':'Approve and continue'}</button>`
+        : '';
+      return `<div class="chat-approval"><div class="approval-title">Manual approval required</div><div class="approval-tool">Tool: ${tool}</div><div class="approval-msg">${msg}</div>${buttonHtml}</div>`;
+    }).join('');
+  };
+
+  let html='';
+  if(!chatMessages.length&&!chatStreaming&&!chatError){
+    html='<div class="chat-empty">Start a conversation with Claude about this project. Select text in a section to attach context to your next message.</div>';
+  }else{
+    html=chatMessages.map(m=>{
+      const role=(m.role||'assistant');
+      const safe=escapeHtml(m.content||'').replace(/\n/g,'<br>');
+      const cls=role==='user'?'user':(role==='assistant'?'assistant':'system');
+      const metadata=(m.metadata||{});
+      const contextHtml=renderSelectionContext(metadata);
+      const attachmentsHtml=renderAttachments(metadata);
+      const approvalHtml=role==='assistant'?renderApprovals(metadata.approval_requests,m.id,Boolean(metadata.approval_resolved)):'';
+      return `${approvalHtml}<div class="chat-bubble ${cls}">${contextHtml}${attachmentsHtml}<div>${safe}</div></div>`;
+    }).join('');
+  }
+
+  const pendingApprovalBlocks=chatMessages
+    .filter(m=>{
+      const md=m.metadata||{};
+      return m.role==='assistant'&&Array.isArray(md.approval_requests)&&md.approval_requests.length&&!md.approval_resolved;
+    })
+    .map(m=>renderApprovals((m.metadata||{}).approval_requests,m.id,false))
+    .join('');
+
+  if(chatToolEvents.length){
+    html+=`<div class="chat-tools">${chatToolEvents.map(t=>`<div class="tool-item">Tool: ${(t.name||'unknown').replace(/</g,'&lt;')}</div>`).join('')}</div>`;
+  }
+
+  if(chatApprovals.length){
+    html+=renderApprovals(chatApprovals,null,true);
+  }
+
+  if(pendingApprovalBlocks){
+    html+=pendingApprovalBlocks;
+  }
+
+  if(chatDraft){
+    const safeDraft=chatDraft.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    html+=`<div class="chat-bubble assistant">${safeDraft}</div>`;
+  }
+
+  if(chatError){
+    html+=`<div class="chat-error">${chatError.replace(/</g,'&lt;')}</div>`;
+  }
+
+  container.innerHTML=html;
+  container.scrollTop=container.scrollHeight;
+
+  const sendBtn=document.getElementById('chatSendBtn');
+  if(sendBtn)sendBtn.disabled=chatStreaming;
+}
+
+async function loadChatMessages(){
+  if(!currentProject)return;
+  try{
+    const res=await fetch(`/api/projects/${currentProject}/chat/messages`);
+    if(!res.ok){
+      const err=await res.json().catch(()=>({error:'Failed to load chat'}));
+      chatError=err.error||'Failed to load chat';
+      renderChatMessages();
+      return;
+    }
+    const data=await res.json();
+    chatMessages=data.messages||[];
+    chatError='';
+  }catch(e){
+    chatError='Failed to load chat';
+  }
+  renderChatMessages();
+}
+
+function handleChatSseEvent(rawEvent){
+  if(!rawEvent.trim())return;
+  let event='message';
+  let data='';
+  rawEvent.split('\n').forEach(line=>{
+    if(line.startsWith('event:'))event=line.slice(6).trim();
+    else if(line.startsWith('data:'))data+=line.slice(5).trim();
+  });
+
+  let payload={};
+  try{payload=data?JSON.parse(data):{}}catch(_){payload={}}
+
+  if(event==='delta'){
+    chatDraft+=payload.text||'';
+  }else if(event==='tool'){
+    chatToolEvents.push(payload||{});
+  }else if(event==='approval'){
+    chatApprovals.push(payload||{});
+  }else if(event==='done'){
+    if(payload.approved_message_id){
+      const approvedId=payload.approved_message_id;
+      chatMessages=chatMessages.map(m=>{
+        if(m.id!==approvedId)return m;
+        const meta={...(m.metadata||{}),approval_resolved:true};
+        return {...m,metadata:meta};
+      });
+    }
+    chatDraft='';
+    if(payload.message){
+      const message=payload.message;
+      if(
+        message.role==='assistant' &&
+        chatApprovals.length &&
+        (!message.metadata || !Array.isArray(message.metadata.approval_requests) || !message.metadata.approval_requests.length)
+      ){
+        const meta={...(message.metadata||{}),approval_requests:[...chatApprovals],approval_resolved:false};
+        message.metadata=meta;
+      }
+      chatMessages.push(message);
+      chatTurnCompleted=true;
+      if(shouldRefreshAfterAssistantMessage(message))triggerLiveRefresh();
+    }
+    chatApprovals=[];
+  }else if(event==='error'){
+    chatError=payload.error||'Chat failed';
+  }
+  renderChatMessages();
+}
+
+async function sendChatMessage(){
+  if(chatStreaming||!currentProject)return;
+  const input=document.getElementById('chatInput');
+  if(!input)return;
+  const message=input.value.trim();
+  const attachments=chatPendingAttachments.map(item=>({...item}));
+  if(!message&&!attachments.length)return;
+  const selectionContext=chatSelectionContext?{...chatSelectionContext}:null;
+  const userMessage=message||'Please review attached files.';
+
+  input.value='';
+  chatStreaming=true;
+  chatTurnCompleted=false;
+  chatDraft='';
+  chatToolEvents=[];
+  chatApprovals=[];
+  chatApprovalPendingId='';
+  chatError='';
+  chatMessages.push({
+    role:'user',
+    content:userMessage,
+    metadata:{
+      ...(selectionContext?{selection_context:selectionContext}:{}),
+      ...(attachments.length?{attachments}:{}),
+    },
+    created_at:new Date().toISOString()
+  });
+  renderChatMessages();
+
+  chatStreamAbort=new AbortController();
+  try{
+    const res=await fetch(`/api/projects/${currentProject}/chat/stream`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        message,
+        selection_context:selectionContext,
+        attachments,
+      }),
+      signal:chatStreamAbort.signal
+    });
+
+    if(!res.ok){
+      const err=await res.json().catch(()=>({error:'Chat request failed'}));
+      throw new Error(err.error||'Chat request failed');
+    }
+
+    if(selectionContext)clearChatSelectionContext();
+    if(attachments.length)clearChatAttachments();
+
+    const reader=res.body.getReader();
+    const decoder=new TextDecoder();
+    let buffer='';
+
+    while(true){
+      const {value,done}=await reader.read();
+      if(done)break;
+      buffer+=decoder.decode(value,{stream:true});
+
+      let sepIndex=buffer.indexOf('\n\n');
+      while(sepIndex!==-1){
+        const rawEvent=buffer.slice(0,sepIndex);
+        buffer=buffer.slice(sepIndex+2);
+        handleChatSseEvent(rawEvent);
+        sepIndex=buffer.indexOf('\n\n');
+      }
+    }
+
+    await loadChatMessages();
+  }catch(e){
+    if(e.name==='AbortError'){}
+    else{chatError=(e&&e.message)?e.message:'Chat request failed';}
+  }finally{
+    chatStreamAbort=null;
+    chatStreaming=false;
+    chatDraft='';
+    renderChatMessages();
+  }
+}
+
+async function clearChat(){
+  if(chatStreaming||!currentProject)return;
+  chatError='';
+  try{
+    await fetch(`/api/projects/${currentProject}/chat/clear`,{method:'POST'});
+    chatMessages=[];
+    chatDraft='';
+    chatToolEvents=[];
+    chatApprovals=[];
+    chatApprovalPendingId='';
+    clearChatAttachments();
+  }catch(e){
+    chatError='Failed to clear chat';
+  }
+  renderChatMessages();
+}
+
+async function approveChat(messageId){
+  if(chatStreaming||!currentProject||!messageId)return;
+
+  chatStreaming=true;
+  chatApprovalPendingId=messageId;
+  chatDraft='';
+  chatToolEvents=[];
+  chatApprovals=[];
+  chatError='';
+  renderChatMessages();
+
+  chatStreamAbort=new AbortController();
+  try{
+    const res=await fetch(`/api/projects/${currentProject}/chat/approve`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({assistant_message_id:messageId}),
+      signal:chatStreamAbort.signal
+    });
+
+    if(!res.ok){
+      const err=await res.json().catch(()=>({error:'Approval request failed'}));
+      throw new Error(err.error||'Approval request failed');
+    }
+
+    const reader=res.body.getReader();
+    const decoder=new TextDecoder();
+    let buffer='';
+
+    while(true){
+      const {value,done}=await reader.read();
+      if(done)break;
+      buffer+=decoder.decode(value,{stream:true});
+
+      let sepIndex=buffer.indexOf('\n\n');
+      while(sepIndex!==-1){
+        const rawEvent=buffer.slice(0,sepIndex);
+        buffer=buffer.slice(sepIndex+2);
+        handleChatSseEvent(rawEvent);
+        sepIndex=buffer.indexOf('\n\n');
+      }
+    }
+
+    await loadChatMessages();
+  }catch(e){
+    if(e.name==='AbortError'){}
+    else{chatError=(e&&e.message)?e.message:'Approval request failed';}
+  }finally{
+    chatStreamAbort=null;
+    chatStreaming=false;
+    chatApprovalPendingId='';
+    chatDraft='';
+    renderChatMessages();
+  }
+}
+
+function handleChatKeydown(event){
+  if(event.key==='Enter'&&!event.shiftKey){
+    event.preventDefault();
+    sendChatMessage();
+  }
+}
+
 function switchTab(tab){
   const prevTab=activeTab;
   document.querySelectorAll('.nav-icon[data-tab]').forEach(n=>n.classList.toggle('active',n.dataset.tab===tab));
@@ -960,16 +1725,168 @@ function toggleSidebar(){
 async function loadSettings(){
   if(!currentProject)return;
   const res=await fetch(`/api/projects/${currentProject}/settings`);
+  if(!res.ok)return;
   const data=await res.json();
   document.getElementById('settingClaudeReplies').checked=data.claude_comment_replies!==false;
+  const provider=(data.chat_provider==='anthropic_api')?'anthropic_api':'claude_cli';
+  const providerSelect=document.getElementById('settingChatProvider');
+  if(providerSelect)providerSelect.value=provider;
+  updateChatProviderMeta(provider);
+  chatEnabled=!!data.chat_enabled;
+  const chatEnabledCheckbox=document.getElementById('settingChatEnabled');
+  if(chatEnabledCheckbox)chatEnabledCheckbox.checked=chatEnabled;
+  const modelSelect=document.getElementById('settingChatModel');
+  if(modelSelect&&data.chat_model)modelSelect.value=data.chat_model;
+  applyChatVisibility();
+  return data;
+}
+
+function applyChatVisibility(){
+  document.querySelector('.chat-dock').style.display=chatEnabled?'':'none';
+  const providerRow=document.getElementById('chatProviderRow');
+  if(providerRow)providerRow.style.display=chatEnabled?'':'none';
+  const modelRow=document.getElementById('chatModelRow');
+  if(modelRow)modelRow.style.display=chatEnabled?'':'none';
+  const statusEl=document.getElementById('chatProviderStatus');
+  if(statusEl)statusEl.style.display=chatEnabled?'':'none';
+  const apiKeyRow=document.getElementById('chatApiKeyRow');
+  if(apiKeyRow)apiKeyRow.style.display=chatEnabled?'':'none';
+  if(chatEnabled)loadProviderStatus();
+  if(!chatEnabled){
+    if(chatStreamAbort){chatStreamAbort.abort();chatStreamAbort=null;}
+    chatMessages=[];chatDraft='';chatError='';chatToolEvents=[];
+    chatApprovals=[];chatApprovalPendingId='';chatSelectionContext=null;
+    chatPendingAttachments=[];chatStreaming=false;chatTurnCompleted=false;
+    renderChatMessages();
+  }
+}
+
+async function loadProviderStatus(){
+  try{
+    const res=await fetch('/api/chat/provider-status');
+    if(!res.ok)return;
+    const s=await res.json();
+    const el=document.getElementById('chatProviderStatus');
+    if(!el)return;
+    const cli=s.claude_cli;
+    const api=s.anthropic_api;
+    let html='<strong>Provider status:</strong> ';
+    if(cli.installed){
+      html+=cli.logged_in?'<span style="color:#22c55e">CLI: logged in</span>':'<span style="color:#ef4444">CLI: not logged in</span>';
+    }else{
+      html+='<span style="color:var(--text-muted)">CLI: not installed</span>';
+    }
+    html+=' &middot; ';
+    html+=api.configured?`<span style="color:#22c55e">API key: ${api.key_hint}</span>`:'<span style="color:#ef4444">API key: not set</span>';
+    el.innerHTML=html;
+    // Show CLI login button only when CLI is installed but not logged in
+    const loginRow=document.getElementById('chatCliLoginRow');
+    if(loginRow)loginRow.style.display=(cli.installed&&!cli.logged_in)?'':'none';
+  }catch(e){}
+}
+
+let _cliLoginState='';
+async function startCliLogin(){
+  const btn=document.getElementById('chatCliLoginBtn');
+  const info=document.getElementById('chatCliLoginInfo');
+  if(btn)btn.disabled=true;
+  if(info)info.textContent='Starting login...';
+  try{
+    const res=await fetch('/api/chat/cli-login',{method:'POST'});
+    const data=await res.json();
+    if(!res.ok){
+      if(info)info.textContent=data.error||'Login failed';
+      if(btn)btn.disabled=false;
+      return;
+    }
+    _cliLoginState=data.state||'';
+    if(info)info.innerHTML='1. <a href="'+data.url+'" target="_blank" rel="noopener" style="color:#818cf8">Open this link</a> and click Authorize<br>2. Copy the code and paste it below';
+    const codeRow=document.getElementById('chatCliCodeRow');
+    if(codeRow)codeRow.style.display='';
+    const codeInput=document.getElementById('chatCliCodeInput');
+    if(codeInput){codeInput.value='';codeInput.focus();}
+  }catch(e){
+    if(info)info.textContent='Login request failed';
+    if(btn)btn.disabled=false;
+  }
+}
+
+async function submitCliCode(){
+  const codeInput=document.getElementById('chatCliCodeInput');
+  const info=document.getElementById('chatCliLoginInfo');
+  const btn=document.getElementById('chatCliLoginBtn');
+  const codeRow=document.getElementById('chatCliCodeRow');
+  if(!codeInput)return;
+  const code=codeInput.value.trim();
+  if(!code){if(info)info.textContent='Please paste the code first';return;}
+  if(info)info.innerHTML='<span style="color:var(--text-muted)">Exchanging code for token...</span>';
+  try{
+    const res=await fetch('/api/chat/cli-login-code',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code,state:_cliLoginState})
+    });
+    const data=await res.json();
+    if(data.ok&&data.logged_in){
+      if(info)info.innerHTML='<span style="color:#22c55e">Login successful!</span>';
+      if(codeRow)codeRow.style.display='none';
+      if(btn)btn.disabled=false;
+      loadProviderStatus();
+    }else{
+      if(info)info.textContent=data.error||'Login failed. Try again.';
+      if(btn)btn.disabled=false;
+    }
+  }catch(e){
+    if(info)info.textContent='Failed to submit code';
+    if(btn)btn.disabled=false;
+  }
+}
+
+async function saveApiKey(){
+  const input=document.getElementById('chatApiKeyInput');
+  if(!input)return;
+  const key=input.value.trim();
+  try{
+    const res=await fetch('/api/chat/api-key',{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({api_key:key})
+    });
+    const data=await res.json();
+    if(!res.ok){
+      const hint=document.getElementById('chatApiKeyHint');
+      if(hint)hint.textContent=data.error||'Failed to save';
+      return;
+    }
+    input.value='';
+    const hint=document.getElementById('chatApiKeyHint');
+    if(hint)hint.textContent=data.configured?`Saved (${data.key_hint})`:'Key cleared';
+    loadProviderStatus();
+  }catch(e){
+    const hint=document.getElementById('chatApiKeyHint');
+    if(hint)hint.textContent='Failed to save';
+  }
 }
 
 async function saveSetting(key,value){
   if(!currentProject)return;
-  await fetch(`/api/projects/${currentProject}/settings`,{
+  const res=await fetch(`/api/projects/${currentProject}/settings`,{
     method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({[key]:value})
   });
+  if(!res.ok)return;
+  const data=await res.json();
+  const provider=(data.chat_provider==='anthropic_api')?'anthropic_api':'claude_cli';
+  updateChatProviderMeta(provider);
+  if(key==='chat_enabled'){
+    chatEnabled=!!value;
+    applyChatVisibility();
+    if(chatEnabled)loadChatMessages();
+  }
+}
+
+function updateChatProviderMeta(provider){
+  const meta=document.getElementById('chatProviderMeta');
+  if(!meta)return;
+  meta.textContent=provider==='anthropic_api'?'Anthropic API':'Claude CLI';
 }
 
 /* --- Token Stats --- */
@@ -989,8 +1906,13 @@ async function loadTokenStats(){
 
 function renderTokenStats(d){
   const mc=document.getElementById('mainContent');
-  if(!d||d.operations===0){
-    mc.innerHTML='<div class="empty" style="flex-direction:column;gap:8px"><span>No token data yet.</span><span style="font-size:13px">Use MCP tools to read sections and savings will appear here.</span></div>';
+  const ps=(d&&d.project_stats)||{};
+  const psSections=Number(ps.sections||0);
+  const psDeps=Number(ps.dependencies||0);
+  const psRevisions=Number(ps.revisions||0);
+
+  if(!d){
+    mc.innerHTML='<div class="empty" style="flex-direction:column;gap:8px"><span>Failed to load stats.</span></div>';
     return;
   }
   const loadedPct=Math.max(2,Math.round(d.total_loaded_tokens/(d.total_full_doc_tokens||1)*100));
@@ -1004,6 +1926,9 @@ function renderTokenStats(d){
   }
   mc.innerHTML=`<div class="stats-dashboard">
     <div class="stats-hero">
+      <div class="stat-card"><div class="stat-value">${psSections}</div><div class="stat-label">Sections</div></div>
+      <div class="stat-card"><div class="stat-value">${psDeps}</div><div class="stat-label">Dependencies</div></div>
+      <div class="stat-card"><div class="stat-value">${psRevisions}</div><div class="stat-label">Revisions</div></div>
       <div class="stat-card"><div class="stat-value">${fmt(d.total_saved_tokens)}</div><div class="stat-label">Tokens Saved</div></div>
       <div class="stat-card accent"><div class="stat-value">${d.savings_percent}%</div><div class="stat-label">Savings Rate</div></div>
       <div class="stat-card"><div class="stat-value">${d.operations}</div><div class="stat-label">Operations</div></div>

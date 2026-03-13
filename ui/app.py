@@ -1,19 +1,76 @@
 """PRD Forge Web UI — FastAPI application."""
 
+import asyncio
+import glob
+import json
+import logging
 import os
+import re
+import shlex
+import shutil
 import sys
+import time
+import tempfile
 import uuid as _uuid
 from contextlib import asynccontextmanager
+from typing import Any
 
 import asyncpg
+import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from shared.settings import DEFAULT_PROJECT_SETTINGS, validate_settings
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "mcp_server"))
+from shared.settings import CHAT_PROVIDER_VALUES, DEFAULT_PROJECT_SETTINGS, validate_settings
 
 pool: asyncpg.Pool | None = None
+logger = logging.getLogger("prd_forge_ui")
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = (os.environ.get(name, "") or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+        return value if value > 0 else default
+    except ValueError:
+        return default
+
+
+CHAT_MAX_ATTACHMENTS = _int_env("CHAT_MAX_ATTACHMENTS", 5)
+CHAT_ATTACHMENT_MAX_BYTES = _int_env("CHAT_ATTACHMENT_MAX_BYTES", 200_000)
+CHAT_ATTACHMENT_MAX_CHARS = _int_env("CHAT_ATTACHMENT_MAX_CHARS", 12_000)
+CHAT_ATTACHMENTS_MAX_TOTAL_CHARS = _int_env("CHAT_ATTACHMENTS_MAX_TOTAL_CHARS", 40_000)
+PROJECT_SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+
+# Runtime credential stores — set via UI, not persisted to disk
+_runtime_anthropic_api_key: str = ""
+_runtime_cli_auth_token: str = ""
+_runtime_refresh_token: str = ""
+_pending_oauth: dict[str, str] = {}  # state -> code_verifier
+
+CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+CLAUDE_OAUTH_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
+CLAUDE_OAUTH_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
+
+
+def _get_anthropic_api_key() -> str:
+    return _runtime_anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "").strip()
+
+
+def _get_cli_auth_token() -> str:
+    return _runtime_cli_auth_token or os.environ.get("ANTHROPIC_AUTH_TOKEN", "").strip()
+
+
+def _slugify_project_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:100]
+
+
+def _valid_project_slug(slug: str) -> bool:
+    return bool(slug and len(slug) <= 100 and PROJECT_SLUG_RE.match(slug))
 
 
 @asynccontextmanager
@@ -40,12 +97,1027 @@ def row_dict(r):
     for k, v in d.items():
         if hasattr(v, "isoformat"):
             d[k] = v.isoformat()
+        elif isinstance(v, _uuid.UUID):
+            d[k] = str(v)
+        elif k == "metadata" and isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                d[k] = parsed
+            except Exception:
+                d[k] = v
     return d
 
 
 _static_dir = os.path.join(os.path.dirname(__file__), "static")
 with open(os.path.join(_static_dir, "index.html")) as _f:
     HTML = _f.read()
+
+
+CHAT_ALLOWED_MCP_TOOLS: dict[str, dict[str, Any]] = {
+    "prd_get_overview": {
+        "description": "Get project overview with section summaries.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "arg_names": [],
+    },
+    "prd_list_sections": {
+        "description": "List all sections with metadata.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "arg_names": [],
+    },
+    "prd_read_section": {
+        "description": "Read one section with dependency context.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string", "description": "Section slug"},
+            },
+            "required": ["section"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section"],
+    },
+    "prd_search": {
+        "description": "Search sections by text or tag:prefix query.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["query"],
+    },
+    "prd_list_comments": {
+        "description": "List comments across the project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "include_resolved": {"type": "boolean"},
+            },
+            "additionalProperties": False,
+        },
+        "arg_names": ["include_resolved"],
+    },
+    "prd_update_section": {
+        "description": "Update section fields. Use after reading the target section.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "content": {"type": "string"},
+                "summary": {"type": "string"},
+                "title": {"type": "string"},
+                "status": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "notes": {"type": "string"},
+                "change_description": {"type": "string"},
+                "resolve_comments": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+            "required": ["section"],
+            "additionalProperties": False,
+        },
+        "arg_names": [
+            "section",
+            "content",
+            "summary",
+            "title",
+            "status",
+            "tags",
+            "notes",
+            "change_description",
+            "resolve_comments",
+        ],
+    },
+    "prd_resolve_comment": {
+        "description": "Resolve or reopen comment in section.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "comment_id": {"type": "string"},
+                "reopen": {"type": "boolean"},
+            },
+            "required": ["section", "comment_id"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "comment_id", "reopen"],
+    },
+    "prd_add_comment_reply": {
+        "description": "Reply to a section comment as claude.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "comment_id": {"type": "string"},
+                "body": {"type": "string"},
+            },
+            "required": ["section", "comment_id", "body"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "comment_id", "body"],
+    },
+}
+
+APPROVAL_ALLOWED_TOOLS = {f"mcp__prd-forge__{k}" for k in CHAT_ALLOWED_MCP_TOOLS}
+
+
+def _chat_tools_for_anthropic() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": name,
+            "description": spec["description"],
+            "input_schema": spec["input_schema"],
+        }
+        for name, spec in CHAT_ALLOWED_MCP_TOOLS.items()
+    ]
+
+
+def _sse(event: str, payload: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _chat_system_prompt(project_slug: str) -> str:
+    return (
+        "You are Claude inside PRD Forge Web UI. "
+        f"Only operate on project '{project_slug}'. "
+        "Use tools for factual project data and for any mutations. "
+        "When calling prd_create_section, use section_type from: overview, tech_spec, data_model, api_spec, ui_design, architecture, deployment, security, testing, timeline, general (use general if unsure). "
+        "Before updating a section, read it first. "
+        "Never claim a write succeeded unless tool output confirms success. "
+        "If a tool returns an error, explain it briefly and suggest a fix."
+    )
+
+
+def _chat_provider() -> str:
+    provider = (os.environ.get("CHAT_PROVIDER", "anthropic_api") or "").strip().lower()
+    if provider in {"anthropic_api", "claude_cli"}:
+        return provider
+    if provider == "auto":
+        cli_cmd = (os.environ.get("CLAUDE_CLI_PATH", "claude") or "claude").strip()
+        return "claude_cli" if shutil.which(cli_cmd) else "anthropic_api"
+    return "anthropic_api"
+
+
+def _effective_chat_provider(project_settings: dict[str, Any] | None) -> str:
+    if project_settings:
+        provider = str(project_settings.get("chat_provider") or "").strip().lower()
+        if provider in CHAT_PROVIDER_VALUES:
+            return provider
+    return _chat_provider()
+
+
+def _chat_mcp_url() -> str:
+    return (os.environ.get("CHAT_MCP_URL", "http://localhost:8080/mcp/") or "").strip()
+
+
+def _create_claude_cli_mcp_config_file() -> str:
+    mcp_url = _chat_mcp_url()
+    payload = {
+        "mcpServers": {
+            "prd-forge": {
+                "type": "http",
+                "url": mcp_url,
+            }
+        }
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as fp:
+        json.dump(payload, fp)
+        fp.flush()
+        return fp.name
+
+
+def _prepare_claude_cli_runtime() -> None:
+    claude_config_path = "/root/.claude.json"
+    if os.path.exists(claude_config_path):
+        return
+
+    backup_candidates = sorted(glob.glob("/root/.claude/backups/.claude.json.backup.*"))
+    if backup_candidates:
+        latest_backup = backup_candidates[-1]
+        try:
+            shutil.copy2(latest_backup, claude_config_path)
+        except Exception:
+            logger.warning("Failed to restore Claude CLI config from backup: %s", latest_backup)
+
+
+def _build_claude_cli_prompt(project_slug: str, history: list[dict[str, Any]], user_message: str) -> str:
+    lines = [
+        "You are Claude inside PRD Forge Web UI.",
+        f"Only operate on project '{project_slug}'.",
+        "Answer concisely and use markdown when useful.",
+        "",
+        "Conversation history:",
+    ]
+
+    for turn in history[-20:]:
+        role = (turn.get("role") or "assistant").strip().lower()
+        content = str(turn.get("content") or "")
+        if not content:
+            continue
+        role_label = "User" if role == "user" else "Assistant"
+        lines.append(f"{role_label}:\n{content}\n")
+
+    lines.extend(
+        [
+            "Current user message:",
+            user_message,
+            "",
+            "Reply as assistant:",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _extract_assistant_text_from_cli_message(obj: dict[str, Any]) -> str:
+    message = obj.get("message") or {}
+    content = message.get("content") or []
+    text_parts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+    return "".join(text_parts)
+
+
+def _canonical_tool_name(raw_name: str) -> str:
+    name = str(raw_name or "").strip()
+    if not name:
+        return ""
+    parts = name.split("__")
+    return parts[-1] if parts else name
+
+
+def _manual_approval_payload(final_text: str, requested_tools: list[str]) -> dict[str, Any] | None:
+    text = (final_text or "").strip()
+    if not text:
+        return None
+
+    lowered = text.lower()
+    markers = (
+        "need your permission",
+        "grant access",
+        "manual approval",
+        "please approve",
+        "permission to execute",
+        "разрешен",
+        "апрув",
+    )
+    if not any(marker in lowered for marker in markers):
+        return None
+
+    tool = ""
+    for tool_name in reversed(requested_tools):
+        canonical = _canonical_tool_name(tool_name)
+        if canonical.startswith("prd_"):
+            tool = canonical
+            break
+    if not tool and requested_tools:
+        tool = _canonical_tool_name(requested_tools[-1])
+
+    return {
+        "kind": "manual_approval_required",
+        "tool": tool,
+        "message": text,
+    }
+
+
+async def _iter_json_objects_from_stream(stream: asyncio.StreamReader):
+    decoder = json.JSONDecoder()
+    buffer = ""
+
+    while True:
+        chunk = await stream.read(4096)
+        if not chunk:
+            break
+        buffer += chunk.decode("utf-8", errors="replace")
+
+        while True:
+            buffer = buffer.lstrip()
+            if not buffer:
+                break
+            try:
+                obj, idx = decoder.raw_decode(buffer)
+            except json.JSONDecodeError:
+                break
+            yield obj
+            buffer = buffer[idx:]
+
+    buffer = buffer.strip()
+    while buffer:
+        try:
+            obj, idx = decoder.raw_decode(buffer)
+        except json.JSONDecodeError:
+            logger.debug("Unparsed Claude CLI stream tail: %s", buffer[:200])
+            break
+        yield obj
+        buffer = buffer[idx:].lstrip()
+
+
+async def _claude_cli_turn_stream(
+    project_slug: str,
+    history: list[dict[str, Any]],
+    user_message: str,
+    permission_mode_override: str | None = None,
+    allowed_tools_override: list[str] | None = None,
+    model_override: str | None = None,
+):
+    cli_path = (os.environ.get("CLAUDE_CLI_PATH", "claude") or "claude").strip()
+    cli_exe = shutil.which(cli_path) if os.path.sep not in cli_path else cli_path
+    if not cli_exe:
+        raise RuntimeError(
+            "Claude CLI not found. Install `claude` and set CHAT_PROVIDER=claude_cli (or set CLAUDE_CLI_PATH)."
+        )
+
+    _prepare_claude_cli_runtime()
+
+    prompt = _build_claude_cli_prompt(project_slug, history, user_message)
+    mcp_config_path = _create_claude_cli_mcp_config_file()
+    permission_mode = (permission_mode_override or "").strip() or (
+        os.environ.get("CLAUDE_CLI_PERMISSION_MODE", "acceptEdits") or ""
+    ).strip()
+    if hasattr(os, "geteuid") and os.geteuid() == 0 and permission_mode in {
+        "bypassPermissions",
+        "dangerously-skip-permissions",
+    }:
+        permission_mode = "acceptEdits"
+    system_append = (
+        _chat_system_prompt(project_slug)
+        + f" Always pass project='{project_slug}' in every PRD Forge tool call."
+    )
+
+    args = [
+        cli_exe,
+        "-p",
+        prompt,
+        "--output-format",
+        "stream-json",
+        "--input-format",
+        "text",
+        "--include-partial-messages",
+        "--verbose",
+        "--mcp-config",
+        mcp_config_path,
+        "--strict-mcp-config",
+        "--append-system-prompt",
+        system_append,
+    ]
+
+    if permission_mode:
+        args.extend(["--permission-mode", permission_mode])
+
+    if allowed_tools_override:
+        allowed_tools = [str(t).strip() for t in allowed_tools_override if str(t).strip()]
+        if allowed_tools:
+            args.extend(["--allowedTools", ",".join(allowed_tools)])
+
+    model = model_override or (os.environ.get("CLAUDE_CLI_MODEL", "sonnet") or "sonnet").strip()
+    args.extend(["--model", model])
+
+    extra_args = (os.environ.get("CLAUDE_CLI_ARGS", "") or "").strip()
+    if extra_args:
+        args.extend(shlex.split(extra_args))
+
+    cli_env = None
+    auth_token = _get_cli_auth_token()
+    if auth_token:
+        cli_env = {**os.environ, "ANTHROPIC_AUTH_TOKEN": auth_token}
+
+    process = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=cli_env,
+    )
+
+    assistant_text_parts: list[str] = []
+    assistant_message_text = ""
+    saw_delta = False
+    requested_tools: list[str] = []
+
+    try:
+        assert process.stdout is not None
+        async for obj in _iter_json_objects_from_stream(process.stdout):
+            if not isinstance(obj, dict):
+                continue
+            obj_type = obj.get("type")
+
+            if obj_type == "stream_event":
+                event = obj.get("event") or {}
+                event_type = event.get("type")
+                if event_type == "content_block_delta":
+                    delta = event.get("delta") or {}
+                    if delta.get("type") == "text_delta":
+                        text = str(delta.get("text") or "")
+                        if text:
+                            saw_delta = True
+                            assistant_text_parts.append(text)
+                            yield {"type": "delta", "text": text}
+                elif event_type == "content_block_start":
+                    content_block = event.get("content_block") or {}
+                    if content_block.get("type") == "tool_use":
+                        tool_name = str(content_block.get("name") or "")
+                        tool_input = content_block.get("input") or {}
+                        if tool_name:
+                            requested_tools.append(tool_name)
+                        yield {
+                            "type": "tool",
+                            "tool": {
+                                "name": tool_name,
+                                "input": tool_input,
+                            },
+                        }
+
+            elif obj_type == "assistant":
+                extracted = _extract_assistant_text_from_cli_message(obj)
+                if extracted:
+                    assistant_message_text = extracted
+
+            elif obj_type == "result" and obj.get("is_error"):
+                result_text = str(obj.get("result") or "Claude CLI returned an error")
+                raise RuntimeError(result_text)
+
+        stderr_text = ""
+        if process.stderr is not None:
+            stderr_text = (await process.stderr.read()).decode("utf-8", errors="replace").strip()
+        return_code = await process.wait()
+        if return_code != 0:
+            details = stderr_text or f"exit code {return_code}"
+            raise RuntimeError(f"Claude CLI command failed: {details}")
+
+        final_text = "".join(assistant_text_parts).strip()
+        if not final_text:
+            final_text = assistant_message_text.strip()
+
+        if not final_text:
+            raise RuntimeError("Claude CLI returned an empty response")
+
+        approval_payload = _manual_approval_payload(final_text, requested_tools)
+        if approval_payload is not None:
+            yield {
+                "type": "approval",
+                "approval": approval_payload,
+            }
+
+        if not saw_delta:
+            chunk_size = 80
+            for i in range(0, len(final_text), chunk_size):
+                yield {"type": "delta", "text": final_text[i : i + chunk_size]}
+
+        yield {"type": "done", "text": final_text}
+    finally:
+        try:
+            os.unlink(mcp_config_path)
+        except OSError:
+            pass
+
+
+def _normalize_selection_context(raw: Any) -> dict[str, str] | None:
+    if not isinstance(raw, dict):
+        return None
+
+    selected_text = str(raw.get("selected_text") or "").strip()
+    if not selected_text:
+        return None
+
+    def _clean(key: str, max_len: int) -> str:
+        return str(raw.get(key) or "").strip()[:max_len]
+
+    return {
+        "section_slug": _clean("section_slug", 120),
+        "section_title": _clean("section_title", 200),
+        "selected_text": selected_text[:2500],
+        "anchor_prefix": _clean("anchor_prefix", 600),
+        "anchor_suffix": _clean("anchor_suffix", 600),
+    }
+
+
+def _normalize_chat_attachments(raw: Any) -> list[dict[str, Any]]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("attachments must be an array")
+    if len(raw) > CHAT_MAX_ATTACHMENTS:
+        raise ValueError(f"attachments limit exceeded (max {CHAT_MAX_ATTACHMENTS})")
+
+    normalized: list[dict[str, Any]] = []
+    total_chars = 0
+
+    for idx, item in enumerate(raw, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"attachment #{idx} must be an object")
+
+        name = str(item.get("name") or "").strip()[:200]
+        if not name:
+            raise ValueError(f"attachment #{idx} is missing name")
+
+        mime_type = str(item.get("mime_type") or item.get("type") or "application/octet-stream").strip()[:120]
+        content_text = str(item.get("content_text") or "")
+        if not content_text.strip():
+            raise ValueError(f"attachment '{name}' is empty")
+        if len(content_text) > CHAT_ATTACHMENT_MAX_CHARS:
+            raise ValueError(
+                f"attachment '{name}' exceeds max text length ({CHAT_ATTACHMENT_MAX_CHARS} chars)"
+            )
+
+        provided_size = item.get("size_bytes")
+        try:
+            size_bytes = int(provided_size) if provided_size is not None else len(content_text.encode("utf-8"))
+        except (TypeError, ValueError):
+            size_bytes = len(content_text.encode("utf-8"))
+        if size_bytes < 0:
+            raise ValueError(f"attachment '{name}' has invalid size")
+        if size_bytes > CHAT_ATTACHMENT_MAX_BYTES:
+            raise ValueError(
+                f"attachment '{name}' exceeds max size ({CHAT_ATTACHMENT_MAX_BYTES} bytes)"
+            )
+
+        total_chars += len(content_text)
+        if total_chars > CHAT_ATTACHMENTS_MAX_TOTAL_CHARS:
+            raise ValueError(
+                f"attachments exceed max combined text length ({CHAT_ATTACHMENTS_MAX_TOTAL_CHARS} chars)"
+            )
+
+        normalized.append(
+            {
+                "name": name,
+                "mime_type": mime_type,
+                "size_bytes": size_bytes,
+                "content_text": content_text,
+            }
+        )
+
+    return normalized
+
+
+def _compose_user_turn_message(
+    message: str,
+    selection_context: dict[str, str] | None,
+    attachments: list[dict[str, Any]] | None = None,
+) -> str:
+    if not selection_context and not attachments:
+        return message
+
+    parts = [
+        message,
+    ]
+
+    if selection_context:
+        section = selection_context.get("section_title") or selection_context.get("section_slug") or "unknown"
+        selected_text = selection_context.get("selected_text", "")
+        anchor_prefix = selection_context.get("anchor_prefix", "")
+        anchor_suffix = selection_context.get("anchor_suffix", "")
+        parts.extend(
+            [
+                "",
+                "[Selected context from PRD Forge Web UI]",
+                f"Section: {section}",
+                "Selected text:",
+                selected_text,
+            ]
+        )
+        if anchor_prefix:
+            parts.extend(["", "Prefix:", anchor_prefix])
+        if anchor_suffix:
+            parts.extend(["", "Suffix:", anchor_suffix])
+        parts.extend(["", "Use this selected context to interpret the user request."])
+
+    if attachments:
+        parts.extend(["", "[Attached files from PRD Forge Web UI]"])
+        for attachment in attachments:
+            file_name = str(attachment.get("name") or "file")
+            mime_type = str(attachment.get("mime_type") or "application/octet-stream")
+            content_text = str(attachment.get("content_text") or "")
+            parts.extend(
+                [
+                    "",
+                    f"File: {file_name}",
+                    f"Type: {mime_type}",
+                    "Content:",
+                    content_text,
+                ]
+            )
+        parts.extend(["", "Use attached files as supplemental context for this request."])
+
+    return "\n".join(parts)
+
+
+def _get_mcp_server_module():
+    import server as mcp_server  # type: ignore
+
+    if getattr(mcp_server, "_pool", None) is None and pool is not None:
+        mcp_server._pool = pool
+    return mcp_server
+
+
+async def _run_mcp_tool(project_slug: str, tool_name: str, tool_input: dict[str, Any] | None):
+    spec = CHAT_ALLOWED_MCP_TOOLS.get(tool_name)
+    if not spec:
+        return {"error": f"tool '{tool_name}' is not allowed"}
+
+    mcp_server = _get_mcp_server_module()
+    fn = getattr(mcp_server, tool_name, None)
+    if not fn:
+        return {"error": f"tool '{tool_name}' is unavailable"}
+
+    safe_input = tool_input or {}
+    kwargs: dict[str, Any] = {"project": project_slug}
+    for arg in spec["arg_names"]:
+        if arg in safe_input:
+            kwargs[arg] = safe_input[arg]
+
+    try:
+        raw = await fn(**kwargs)
+        if not isinstance(raw, str):
+            return {"error": f"tool '{tool_name}' returned invalid payload"}
+        parsed = json.loads(raw)
+        return parsed
+    except TypeError as e:
+        return {"error": f"invalid arguments for {tool_name}: {e}"}
+    except Exception as e:
+        logger.exception("chat tool call failed: %s", tool_name)
+        return {"error": str(e)}
+
+
+API_MODEL_MAP = {
+    "sonnet": "claude-sonnet-4-6-20250627",
+    "opus": "claude-opus-4-6-20250918",
+    "haiku": "claude-haiku-4-5-20251001",
+}
+
+
+async def _anthropic_messages(
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    project_slug: str,
+    model_override: str | None = None,
+) -> dict[str, Any]:
+    api_key = _get_anthropic_api_key()
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is not configured. Set it in Experimental Features settings.")
+
+    short = model_override or os.environ.get("ANTHROPIC_MODEL", "sonnet")
+    model = API_MODEL_MAP.get(short, short)
+    max_tokens = int(os.environ.get("CHAT_MAX_TOKENS", "1800"))
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": _chat_system_prompt(project_slug),
+        "messages": messages,
+        "tools": tools,
+    }
+
+    timeout = httpx.Timeout(120.0, connect=20.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
+
+    if resp.status_code >= 400:
+        try:
+            detail = resp.json()
+        except Exception:
+            detail = resp.text
+        raise RuntimeError(f"Anthropic API error ({resp.status_code}): {detail}")
+
+    data = resp.json()
+    if "error" in data:
+        raise RuntimeError(f"Anthropic API error: {data['error']}")
+    return data
+
+
+async def _run_chat_agent_turn(
+    project_slug: str,
+    history: list[dict[str, Any]],
+    user_message: str,
+    model_override: str | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    tools = _chat_tools_for_anthropic()
+    tool_events: list[dict[str, Any]] = []
+    loop_limit = int(os.environ.get("CHAT_MAX_TOOL_LOOPS", "6"))
+
+    messages: list[dict[str, Any]] = list(history)
+    messages.append({"role": "user", "content": user_message})
+
+    for _ in range(loop_limit):
+        response = await _anthropic_messages(messages, tools, project_slug, model_override=model_override)
+        blocks = response.get("content") or []
+        text_parts = [b.get("text", "") for b in blocks if b.get("type") == "text"]
+        tool_uses = [b for b in blocks if b.get("type") == "tool_use"]
+
+        if not tool_uses:
+            final_text = "\n".join([p for p in text_parts if p]).strip()
+            return (final_text or "Done."), tool_events
+
+        assistant_blocks = []
+        for block in blocks:
+            if block.get("type") == "text":
+                assistant_blocks.append({"type": "text", "text": block.get("text", "")})
+            elif block.get("type") == "tool_use":
+                assistant_blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": block.get("id"),
+                        "name": block.get("name"),
+                        "input": block.get("input", {}),
+                    }
+                )
+        messages.append({"role": "assistant", "content": assistant_blocks})
+
+        tool_results = []
+        for tool_call in tool_uses:
+            tool_name = tool_call.get("name", "")
+            tool_input = tool_call.get("input") or {}
+            tool_result = await _run_mcp_tool(project_slug, tool_name, tool_input)
+            tool_events.append(
+                {
+                    "name": tool_name,
+                    "input": tool_input,
+                    "result": tool_result,
+                }
+            )
+            tool_results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_call.get("id"),
+                    "content": json.dumps(tool_result, ensure_ascii=False),
+                }
+            )
+        messages.append({"role": "user", "content": tool_results})
+
+    return (
+        "I reached the tool-call limit for this turn. Please narrow the request or ask me to continue.",
+        tool_events,
+    )
+
+
+async def _resolve_project_id_or_none(slug: str):
+    return await pool.fetchval("SELECT id FROM projects WHERE slug = $1", slug)
+
+
+async def _get_or_create_project_chat(project_id):
+    return await pool.fetchval(
+        """
+        INSERT INTO project_chats (project_id)
+        VALUES ($1)
+        ON CONFLICT (project_id)
+        DO UPDATE SET updated_at = now()
+        RETURNING id
+        """,
+        project_id,
+    )
+
+
+async def _store_chat_message(chat_id, role: str, content: str, metadata: dict[str, Any] | None = None):
+    return await pool.fetchrow(
+        """
+        INSERT INTO chat_messages (chat_id, role, content, metadata)
+        VALUES ($1, $2, $3, $4::jsonb)
+        RETURNING id, role, content, metadata, created_at
+        """,
+        chat_id,
+        role,
+        content,
+        json.dumps(metadata or {}),
+    )
+
+
+async def _get_chat_messages_by_project(slug: str):
+    rows = await pool.fetch(
+        """
+        SELECT m.id, m.role, m.content, m.metadata, m.created_at
+        FROM projects p
+        JOIN project_chats c ON c.project_id = p.id
+        JOIN chat_messages m ON m.chat_id = c.id
+        WHERE p.slug = $1
+        ORDER BY m.created_at ASC
+        """,
+        slug,
+    )
+    return [row_dict(r) for r in rows]
+
+
+async def _get_project_settings_dict(project_id) -> dict[str, Any]:
+    row = await pool.fetchrow(
+        "SELECT settings FROM project_settings WHERE project_id = $1", project_id
+    )
+    if not row:
+        return {}
+
+    raw = row["settings"]
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+async def _is_chat_enabled(project_id) -> bool:
+    """Check if chat is enabled for a project."""
+    raw = await _get_project_settings_dict(project_id)
+    merged = {**DEFAULT_PROJECT_SETTINGS, **raw}
+    return merged.get("chat_enabled", False)
+
+
+def _metadata_dict(raw: Any) -> dict[str, Any] | None:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+    return None
+
+
+async def _build_chat_history(chat_id, before_created_at=None) -> list[dict[str, str]]:
+    if before_created_at is None:
+        history_rows = await pool.fetch(
+            """
+            SELECT role, content, metadata
+            FROM chat_messages
+            WHERE chat_id = $1 AND role IN ('user', 'assistant')
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            chat_id,
+        )
+    else:
+        history_rows = await pool.fetch(
+            """
+            SELECT role, content, metadata
+            FROM chat_messages
+            WHERE chat_id = $1 AND role IN ('user', 'assistant') AND created_at < $2
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            chat_id,
+            before_created_at,
+        )
+
+    history: list[dict[str, str]] = []
+    for row in reversed(history_rows):
+        row_context = None
+        row_attachments: list[dict[str, Any]] = []
+        metadata = _metadata_dict(row["metadata"])
+        if row["role"] == "user" and metadata is not None:
+            row_context = _normalize_selection_context(metadata.get("selection_context"))
+            try:
+                row_attachments = _normalize_chat_attachments(metadata.get("attachments"))
+            except ValueError:
+                row_attachments = []
+        history.append(
+            {
+                "role": row["role"],
+                "content": _compose_user_turn_message(row["content"], row_context, row_attachments)
+                if row["role"] == "user"
+                else row["content"],
+            }
+        )
+    return history
+
+
+async def _update_chat_message_metadata(message_id, metadata: dict[str, Any]) -> None:
+    await pool.execute(
+        "UPDATE chat_messages SET metadata = $2::jsonb WHERE id = $1",
+        message_id,
+        json.dumps(metadata),
+    )
+
+
+def _canonical_chat_tool_name(raw_name: str) -> str:
+    name = str(raw_name or "").strip()
+    if not name:
+        return ""
+    parts = name.split("__")
+    return parts[-1] if parts else name
+
+
+def _tool_events_include(tool_events: list[dict[str, Any]], tool_name: str) -> bool:
+    if not tool_events:
+        return False
+    target = str(tool_name or "").strip()
+    if not target:
+        return False
+    for event in tool_events:
+        raw = str((event or {}).get("name") or "")
+        if _canonical_chat_tool_name(raw) == target:
+            return True
+    return False
+
+
+async def _project_has_chat_activity(project_id) -> bool:
+    count = await pool.fetchval(
+        """
+        SELECT COUNT(m.id)
+        FROM project_chats c
+        JOIN chat_messages m ON m.chat_id = c.id
+        WHERE c.project_id = $1
+        """,
+        project_id,
+    )
+    return bool(count and count > 0)
+
+
+async def _backfill_missing_initial_revisions(project_id) -> int:
+    missing = await pool.fetch(
+        """
+        SELECT s.id, s.content, s.summary
+        FROM sections s
+        LEFT JOIN (
+            SELECT section_id, COUNT(*) AS cnt
+            FROM section_revisions
+            GROUP BY section_id
+        ) r ON r.section_id = s.id
+        WHERE s.project_id = $1 AND COALESCE(r.cnt, 0) = 0
+        """,
+        project_id,
+    )
+    if not missing:
+        return 0
+
+    inserted = 0
+    for row in missing:
+        result = await pool.execute(
+            """
+            INSERT INTO section_revisions (section_id, revision_number, content, summary, change_description)
+            VALUES ($1, 1, $2, $3, $4)
+            ON CONFLICT (section_id, revision_number) DO NOTHING
+            """,
+            row["id"],
+            row["content"] or "",
+            row["summary"] or "",
+            "Initial section snapshot",
+        )
+        try:
+            inserted += int(result.split()[-1])
+        except Exception:
+            pass
+    return inserted
+
+
+async def _backfill_linear_dependencies(project_id) -> int:
+    dep_count = await pool.fetchval(
+        "SELECT COUNT(*) FROM section_dependencies WHERE project_id = $1",
+        project_id,
+    )
+    if dep_count and dep_count > 0:
+        return 0
+
+    sections = await pool.fetch(
+        """
+        SELECT id, slug
+        FROM sections
+        WHERE project_id = $1
+        ORDER BY sort_order ASC, created_at ASC, slug ASC
+        """,
+        project_id,
+    )
+    if len(sections) < 2:
+        return 0
+
+    inserted = 0
+    for idx in range(1, len(sections)):
+        current = sections[idx]
+        previous = sections[idx - 1]
+        result = await pool.execute(
+            """
+            INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description)
+            VALUES ($1, $2, $3, 'references', $4)
+            ON CONFLICT (section_id, depends_on_id) DO NOTHING
+            """,
+            project_id,
+            current["id"],
+            previous["id"],
+            "Auto-linked from chat-generated section order",
+        )
+        try:
+            inserted += int(result.split()[-1])
+        except Exception:
+            pass
+    return inserted
+
+
+async def _ensure_chat_generated_project_graph_data(project_id) -> None:
+    await _backfill_missing_initial_revisions(project_id)
+    if await _project_has_chat_activity(project_id):
+        await _backfill_linear_dependencies(project_id)
 
 
 
@@ -68,11 +1140,51 @@ async def list_projects():
     return [row_dict(r) for r in rows]
 
 
+@app.post("/api/projects")
+async def create_project(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, 400)
+
+    name = str(body.get("name") or "").strip()
+    if not name:
+        return JSONResponse({"error": "name required"}, 400)
+
+    provided_slug = str(body.get("slug") or "").strip().lower()
+    slug = provided_slug or _slugify_project_name(name)
+    if not _valid_project_slug(slug):
+        return JSONResponse(
+            {"error": "invalid slug: use lowercase letters, numbers, and hyphens (max 100 chars)"},
+            400,
+        )
+
+    description = str(body.get("description") or "").strip()
+
+    try:
+        row = await pool.fetchrow(
+            """
+            INSERT INTO projects (name, slug, description)
+            VALUES ($1, $2, $3)
+            RETURNING id, slug, name, description, version, created_at, updated_at
+            """,
+            name,
+            slug,
+            description,
+        )
+    except asyncpg.UniqueViolationError:
+        return JSONResponse({"error": f"project slug '{slug}' already exists"}, 409)
+
+    return row_dict(row)
+
+
 @app.get("/api/projects/{slug}")
 async def get_project(slug: str):
     proj = await pool.fetchrow("SELECT * FROM projects WHERE slug = $1", slug)
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+
+    await _ensure_chat_generated_project_graph_data(proj["id"])
 
     sections = await pool.fetch("""
         SELECT slug, title, section_type, sort_order, status, summary, tags,
@@ -299,16 +1411,9 @@ async def get_settings(slug: str):
     proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
-    row = await pool.fetchrow(
-        "SELECT settings FROM project_settings WHERE project_id = $1", proj["id"]
-    )
-    if row:
-        import json as _json2
-        raw = row["settings"]
-        db_settings = _json2.loads(raw) if isinstance(raw, str) else dict(raw)
-    else:
-        db_settings = {}
+    db_settings = await _get_project_settings_dict(proj["id"])
     merged = {**DEFAULT_PROJECT_SETTINGS, **db_settings}
+    merged["chat_provider"] = _effective_chat_provider(db_settings)
     return merged
 
 
@@ -323,19 +1428,15 @@ async def update_settings(slug: str, request: Request):
     proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
-    import json as _json
     await pool.execute("""
         INSERT INTO project_settings (project_id, settings)
         VALUES ($1, $2::jsonb)
         ON CONFLICT (project_id)
         DO UPDATE SET settings = project_settings.settings || $2::jsonb
-    """, proj["id"], _json.dumps(clean))
-    row = await pool.fetchrow(
-        "SELECT settings FROM project_settings WHERE project_id = $1", proj["id"]
-    )
-    raw = row["settings"]
-    db_settings = _json.loads(raw) if isinstance(raw, str) else dict(raw)
+    """, proj["id"], json.dumps(clean))
+    db_settings = await _get_project_settings_dict(proj["id"])
     merged = {**DEFAULT_PROJECT_SETTINGS, **db_settings}
+    merged["chat_provider"] = _effective_chat_provider(db_settings)
     return merged
 
 
@@ -365,6 +1466,8 @@ async def get_token_stats(slug: str):
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
     pid = proj["id"]
+
+    await _backfill_missing_initial_revisions(pid)
 
     totals = await pool.fetchrow("""
         SELECT COUNT(*) AS operations,
@@ -398,6 +1501,18 @@ async def get_token_stats(slug: str):
     saved = total_full - total_loaded
     pct = round(saved / total_full * 100, 1) if total_full > 0 else 0
 
+    project_stats = await pool.fetchrow(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM sections WHERE project_id = $1) AS section_count,
+            (SELECT COUNT(*) FROM section_dependencies WHERE project_id = $1) AS dependency_count,
+            (SELECT COUNT(*) FROM section_revisions r
+             JOIN sections s ON s.id = r.section_id
+             WHERE s.project_id = $1) AS revision_count
+        """,
+        pid,
+    )
+
     return {
         "operations": totals["operations"],
         "total_full_doc_tokens": total_full,
@@ -407,7 +1522,477 @@ async def get_token_stats(slug: str):
         "by_operation": [row_dict(r) for r in by_op],
         "daily_trend": [{"day": str(r["day"]), "operations": r["operations"],
                          "tokens_saved": r["tokens_saved"]} for r in daily],
+        "project_stats": {
+            "sections": project_stats["section_count"],
+            "dependencies": project_stats["dependency_count"],
+            "revisions": project_stats["revision_count"],
+        },
     }
+
+
+@app.get("/api/chat/provider-status")
+async def chat_provider_status():
+    """Check which providers are available."""
+    cli_cmd = (os.environ.get("CLAUDE_CLI_PATH", "claude") or "claude").strip()
+    cli_installed = bool(shutil.which(cli_cmd))
+    cli_logged_in = False
+    if cli_installed:
+        try:
+            check_env = None
+            auth_token = _get_cli_auth_token()
+            if auth_token:
+                check_env = {**os.environ, "ANTHROPIC_AUTH_TOKEN": auth_token}
+            proc = await asyncio.create_subprocess_exec(
+                cli_cmd, "auth", "status",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                env=check_env,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+            cli_logged_in = b'"loggedIn": true' in stdout or b'"loggedIn":true' in stdout
+        except Exception:
+            pass
+    api_key = _get_anthropic_api_key()
+    return {
+        "claude_cli": {"installed": cli_installed, "logged_in": cli_logged_in},
+        "anthropic_api": {"configured": bool(api_key), "key_hint": f"...{api_key[-4:]}" if len(api_key) >= 4 else ""},
+    }
+
+
+@app.put("/api/chat/api-key")
+async def set_chat_api_key(request: Request):
+    """Set Anthropic API key at runtime (not persisted to disk)."""
+    global _runtime_anthropic_api_key
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, 400)
+    key = str(body.get("api_key") or "").strip()
+    if key and not key.startswith("sk-ant-"):
+        return JSONResponse({"error": "Invalid API key format (expected sk-ant-...)"}, 400)
+    _runtime_anthropic_api_key = key
+    return {"ok": True, "configured": bool(key), "key_hint": f"...{key[-4:]}" if len(key) >= 4 else ""}
+
+
+@app.post("/api/chat/cli-login")
+async def cli_login():
+    """Generate PKCE OAuth URL for Claude CLI authentication."""
+    import base64
+    import hashlib
+    import secrets
+
+    code_verifier = secrets.token_urlsafe(43)
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    state = secrets.token_urlsafe(32)
+
+    _pending_oauth[state] = code_verifier
+
+    from urllib.parse import urlencode
+    params = urlencode({
+        "code": "true",
+        "client_id": CLAUDE_OAUTH_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": CLAUDE_OAUTH_REDIRECT_URI,
+        "scope": "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload",
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+    })
+    url = f"https://claude.ai/oauth/authorize?{params}"
+
+    return {"ok": True, "url": url, "state": state}
+
+
+@app.post("/api/chat/cli-login-code")
+async def cli_login_code(request: Request):
+    """Exchange OAuth code for auth token."""
+    global _runtime_cli_auth_token, _runtime_refresh_token
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, 400)
+
+    raw_code = str(body.get("code") or "").strip()
+    state = str(body.get("state") or "").strip()
+    if not raw_code:
+        return JSONResponse({"error": "code required"}, 400)
+
+    # Callback page shows "CODE#STATE" — split on '#'
+    if "#" in raw_code:
+        code, cb_state = raw_code.split("#", 1)
+        if not state:
+            state = cb_state
+    else:
+        code = raw_code
+
+    code_verifier = _pending_oauth.pop(state, "") if state else ""
+    if not code_verifier:
+        # Fallback: try any pending verifier (single-user homelab)
+        if _pending_oauth:
+            _, code_verifier = _pending_oauth.popitem()
+        else:
+            return JSONResponse({"error": "No pending login. Click 'Login Claude CLI' first."}, 400)
+
+    # Exchange code for token
+    try:
+        token_payload = {
+            "grant_type": "authorization_code",
+            "client_id": CLAUDE_OAUTH_CLIENT_ID,
+            "code": code,
+            "state": state,
+            "redirect_uri": CLAUDE_OAUTH_REDIRECT_URI,
+            "code_verifier": code_verifier,
+        }
+        timeout = httpx.Timeout(15.0, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(CLAUDE_OAUTH_TOKEN_URL, json=token_payload)
+
+        if resp.status_code >= 400:
+            detail = resp.text
+            try:
+                detail = resp.json()
+            except Exception:
+                pass
+            logger.error("OAuth token exchange failed (%d): %s", resp.status_code, detail)
+            return JSONResponse({"error": f"Token exchange failed ({resp.status_code}). Try login again."}, 400)
+
+        token_data = resp.json()
+        logger.warning("OAuth token response keys: %s", list(token_data.keys()))
+        access_token = token_data.get("access_token", "")
+        if not access_token:
+            logger.error("No access_token in response: %s", token_data)
+            return JSONResponse({"error": "No access_token in response"}, 400)
+
+        refresh_token = token_data.get("refresh_token", "")
+        expires_in = token_data.get("expires_in", 28800)
+        expires_at = int((time.time() + expires_in) * 1000)  # ms epoch
+        scopes = token_data.get("scope", "").split() if token_data.get("scope") else []
+
+        logger.warning("OAuth login successful, token prefix: %s, expires in %s seconds",
+                     access_token[:20], expires_in)
+        _runtime_cli_auth_token = access_token
+        _runtime_refresh_token = refresh_token
+
+        # Write credentials file for CLI (same format as macOS keychain)
+        cred_data = {
+            "claudeAiOauth": {
+                "accessToken": access_token,
+                "refreshToken": refresh_token,
+                "expiresAt": expires_at,
+                "scopes": scopes,
+            }
+        }
+        cred_path = os.path.expanduser("~/.claude/.credentials.json")
+        try:
+            os.makedirs(os.path.dirname(cred_path), exist_ok=True)
+            with open(cred_path, "w") as f:
+                json.dump(cred_data, f)
+            os.chmod(cred_path, 0o600)
+            logger.warning("Wrote CLI credentials to %s", cred_path)
+        except Exception as e:
+            logger.warning("Could not write CLI credentials file: %s", e)
+
+        return {"ok": True, "logged_in": True}
+    except Exception as e:
+        logger.exception("OAuth token exchange error")
+        return JSONResponse({"error": str(e)}, 500)
+
+
+@app.get("/api/projects/{slug}/chat/messages")
+async def get_chat_messages(slug: str):
+    proj = await _resolve_project_id_or_none(slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    if not await _is_chat_enabled(proj):
+        return JSONResponse({"error": "Chat is disabled. Enable in Experimental Features settings."}, 403)
+    rows = await _get_chat_messages_by_project(slug)
+    return {"messages": rows}
+
+
+@app.post("/api/projects/{slug}/chat/clear")
+async def clear_chat(slug: str):
+    proj = await _resolve_project_id_or_none(slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    if not await _is_chat_enabled(proj):
+        return JSONResponse({"error": "Chat is disabled. Enable in Experimental Features settings."}, 403)
+    chat_id = await _get_or_create_project_chat(proj)
+    result = await pool.execute("DELETE FROM chat_messages WHERE chat_id = $1", chat_id)
+    deleted = int(result.split()[-1])
+    return {"ok": True, "deleted": deleted}
+
+
+@app.post("/api/projects/{slug}/chat/stream")
+async def stream_chat(slug: str, request: Request):
+    proj = await _resolve_project_id_or_none(slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    if not await _is_chat_enabled(proj):
+        return JSONResponse({"error": "Chat is disabled. Enable in Experimental Features settings."}, 403)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, 400)
+
+    try:
+        attachments = _normalize_chat_attachments(body.get("attachments"))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, 400)
+
+    message = (body.get("message") or "").strip()
+    if not message and not attachments:
+        return JSONResponse({"error": "message required"}, 400)
+    if not message:
+        message = "Please review attached files."
+
+    selection_context = _normalize_selection_context(body.get("selection_context"))
+
+    chat_id = await _get_or_create_project_chat(proj)
+    history = await _build_chat_history(chat_id)
+
+    model_user_message = _compose_user_turn_message(message, selection_context, attachments)
+    user_metadata: dict[str, Any] = {}
+    if selection_context:
+        user_metadata["selection_context"] = selection_context
+    if attachments:
+        user_metadata["attachments"] = attachments
+
+    user_row = await _store_chat_message(chat_id, "user", message, user_metadata or None)
+    project_settings = await _get_project_settings_dict(proj)
+    provider = _effective_chat_provider(project_settings)
+    chat_model = {**DEFAULT_PROJECT_SETTINGS, **project_settings}.get("chat_model", "sonnet")
+
+    async def event_stream():
+        yield _sse("user", row_dict(user_row))
+        yield _sse("status", {"phase": "thinking"})
+        try:
+            if provider == "claude_cli":
+                assistant_text = ""
+                tool_events: list[dict[str, Any]] = []
+                approval_events: list[dict[str, Any]] = []
+                async for event in _claude_cli_turn_stream(slug, history, model_user_message, model_override=chat_model, allowed_tools_override=list(APPROVAL_ALLOWED_TOOLS)):
+                    if event.get("type") == "delta":
+                        chunk = str(event.get("text") or "")
+                        assistant_text += chunk
+                        yield _sse("delta", {"text": chunk})
+                        await asyncio.sleep(0)
+                    elif event.get("type") == "tool":
+                        tool_event = event.get("tool") or {}
+                        tool_events.append(tool_event)
+                        yield _sse("tool", tool_event)
+                    elif event.get("type") == "approval":
+                        approval_event = event.get("approval") or {}
+                        approval_events.append(approval_event)
+                        yield _sse("approval", approval_event)
+                    elif event.get("type") == "done" and not assistant_text:
+                        assistant_text = str(event.get("text") or "")
+
+                assistant_row = await _store_chat_message(
+                    chat_id,
+                    "assistant",
+                    assistant_text,
+                    {
+                        "provider": "claude_cli",
+                        "tool_events": tool_events,
+                        "approval_requests": approval_events,
+                        "approval_resolved": False if approval_events else True,
+                    },
+                )
+            else:
+                assistant_text, tool_events = await _run_chat_agent_turn(slug, history, model_user_message, model_override=chat_model)
+
+                for evt in tool_events:
+                    yield _sse("tool", evt)
+
+                chunk_size = 80
+                for i in range(0, len(assistant_text), chunk_size):
+                    chunk = assistant_text[i : i + chunk_size]
+                    yield _sse("delta", {"text": chunk})
+                    await asyncio.sleep(0)
+
+                assistant_row = await _store_chat_message(
+                    chat_id,
+                    "assistant",
+                    assistant_text,
+                    {"provider": "anthropic_api", "tool_events": tool_events},
+                )
+
+            yield _sse("done", {"message": row_dict(assistant_row)})
+        except Exception as e:
+            logger.exception("chat stream failed")
+            yield _sse("error", {"error": str(e)})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/projects/{slug}/chat/approve")
+async def approve_chat(slug: str, request: Request):
+    proj = await _resolve_project_id_or_none(slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    if not await _is_chat_enabled(proj):
+        return JSONResponse({"error": "Chat is disabled. Enable in Experimental Features settings."}, 403)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, 400)
+
+    assistant_message_id_raw = str(body.get("assistant_message_id") or "").strip()
+    if not assistant_message_id_raw:
+        return JSONResponse({"error": "assistant_message_id required"}, 400)
+
+    try:
+        assistant_message_id = _uuid.UUID(assistant_message_id_raw)
+    except ValueError:
+        return JSONResponse({"error": "assistant_message_id must be a valid UUID"}, 400)
+
+    chat_id = await _get_or_create_project_chat(proj)
+    approval_row = await pool.fetchrow(
+        """
+        SELECT id, role, content, metadata, created_at
+        FROM chat_messages
+        WHERE id = $1 AND chat_id = $2
+        """,
+        assistant_message_id,
+        chat_id,
+    )
+    if not approval_row or approval_row["role"] != "assistant":
+        return JSONResponse({"error": "approval message not found"}, 404)
+
+    approval_metadata = _metadata_dict(approval_row["metadata"]) or {}
+    approval_requests = approval_metadata.get("approval_requests")
+    if not isinstance(approval_requests, list) or not approval_requests:
+        return JSONResponse({"error": "message does not contain approval requests"}, 400)
+    if approval_metadata.get("approval_resolved"):
+        return JSONResponse({"error": "approval already resolved"}, 409)
+
+    source_user_row = await pool.fetchrow(
+        """
+        SELECT id, content, metadata, created_at
+        FROM chat_messages
+        WHERE chat_id = $1 AND role = 'user' AND created_at < $2
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        chat_id,
+        approval_row["created_at"],
+    )
+    if not source_user_row:
+        return JSONResponse({"error": "source user message not found"}, 400)
+
+    history = await _build_chat_history(chat_id, before_created_at=approval_row["created_at"])
+    source_user_metadata = _metadata_dict(source_user_row["metadata"]) or {}
+    source_selection_context = _normalize_selection_context(source_user_metadata.get("selection_context"))
+    try:
+        source_attachments = _normalize_chat_attachments(source_user_metadata.get("attachments"))
+    except ValueError:
+        source_attachments = []
+    source_model_user_message = _compose_user_turn_message(
+        source_user_row["content"],
+        source_selection_context,
+        source_attachments,
+    )
+    approved_model_user_message = (
+        "User approved the pending tool-permission request for this turn. "
+        "Continue the same task and execute the required PRD Forge tools now. "
+        "Do not ask for permission again unless the platform hard-blocks the call.\n\n"
+        "Original user request:\n"
+        f"{source_model_user_message}"
+    )
+
+    approval_permission_mode = (
+        os.environ.get("CLAUDE_CLI_APPROVAL_PERMISSION_MODE", "acceptEdits")
+        or "acceptEdits"
+    ).strip()
+    if approval_permission_mode == "dontAsk":
+        approval_permission_mode = "acceptEdits"
+
+    approved_allowed_tools = [
+        f"mcp__prd-forge__{tool_name}"
+        for tool_name in CHAT_ALLOWED_MCP_TOOLS.keys()
+    ]
+
+    async def event_stream():
+        yield _sse("status", {"phase": "approving", "assistant_message_id": assistant_message_id_raw})
+        try:
+            assistant_text = ""
+            tool_events: list[dict[str, Any]] = []
+            nested_approval_events: list[dict[str, Any]] = []
+
+            approve_settings = await _get_project_settings_dict(proj)
+            approve_model = {**DEFAULT_PROJECT_SETTINGS, **approve_settings}.get("chat_model", "sonnet")
+            async for event in _claude_cli_turn_stream(
+                slug,
+                history,
+                approved_model_user_message,
+                permission_mode_override=approval_permission_mode,
+                allowed_tools_override=approved_allowed_tools,
+                model_override=approve_model,
+            ):
+                if event.get("type") == "delta":
+                    chunk = str(event.get("text") or "")
+                    assistant_text += chunk
+                    yield _sse("delta", {"text": chunk})
+                    await asyncio.sleep(0)
+                elif event.get("type") == "tool":
+                    tool_event = event.get("tool") or {}
+                    tool_events.append(tool_event)
+                    yield _sse("tool", tool_event)
+                elif event.get("type") == "approval":
+                    approval_event = event.get("approval") or {}
+                    nested_approval_events.append(approval_event)
+                    yield _sse("approval", approval_event)
+                elif event.get("type") == "done" and not assistant_text:
+                    assistant_text = str(event.get("text") or "")
+
+            assistant_row = await _store_chat_message(
+                chat_id,
+                "assistant",
+                assistant_text,
+                {
+                    "provider": "claude_cli",
+                    "tool_events": tool_events,
+                    "approval_requests": nested_approval_events,
+                    "approval_resolved": False if nested_approval_events else True,
+                    "approval_for_message_id": assistant_message_id_raw,
+                },
+            )
+
+            updated_approval_metadata = dict(approval_metadata)
+            updated_approval_metadata["approval_resolved"] = True
+            await _update_chat_message_metadata(assistant_message_id, updated_approval_metadata)
+
+            yield _sse(
+                "done",
+                {
+                    "message": row_dict(assistant_row),
+                    "approved_message_id": assistant_message_id_raw,
+                },
+            )
+        except Exception as e:
+            logger.exception("chat approval failed")
+            yield _sse("error", {"error": str(e)})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/projects/{slug}/export")
