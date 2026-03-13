@@ -9,6 +9,7 @@ import re
 import shlex
 import shutil
 import sys
+import time
 import tempfile
 import uuid as _uuid
 from contextlib import asynccontextmanager
@@ -44,6 +45,24 @@ CHAT_ATTACHMENT_MAX_BYTES = _int_env("CHAT_ATTACHMENT_MAX_BYTES", 200_000)
 CHAT_ATTACHMENT_MAX_CHARS = _int_env("CHAT_ATTACHMENT_MAX_CHARS", 12_000)
 CHAT_ATTACHMENTS_MAX_TOTAL_CHARS = _int_env("CHAT_ATTACHMENTS_MAX_TOTAL_CHARS", 40_000)
 PROJECT_SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+
+# Runtime credential stores — set via UI, not persisted to disk
+_runtime_anthropic_api_key: str = ""
+_runtime_cli_auth_token: str = ""
+_runtime_refresh_token: str = ""
+_pending_oauth: dict[str, str] = {}  # state -> code_verifier
+
+CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+CLAUDE_OAUTH_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
+CLAUDE_OAUTH_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
+
+
+def _get_anthropic_api_key() -> str:
+    return _runtime_anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "").strip()
+
+
+def _get_cli_auth_token() -> str:
+    return _runtime_cli_auth_token or os.environ.get("ANTHROPIC_AUTH_TOKEN", "").strip()
 
 
 def _slugify_project_name(name: str) -> str:
@@ -408,6 +427,7 @@ async def _claude_cli_turn_stream(
     user_message: str,
     permission_mode_override: str | None = None,
     allowed_tools_override: list[str] | None = None,
+    model_override: str | None = None,
 ):
     cli_path = (os.environ.get("CLAUDE_CLI_PATH", "claude") or "claude").strip()
     cli_exe = shutil.which(cli_path) if os.path.sep not in cli_path else cli_path
@@ -458,18 +478,23 @@ async def _claude_cli_turn_stream(
         if allowed_tools:
             args.extend(["--allowedTools", ",".join(allowed_tools)])
 
-    model = (os.environ.get("CLAUDE_CLI_MODEL", "") or "").strip()
-    if model:
-        args.extend(["--model", model])
+    model = model_override or (os.environ.get("CLAUDE_CLI_MODEL", "sonnet") or "sonnet").strip()
+    args.extend(["--model", model])
 
     extra_args = (os.environ.get("CLAUDE_CLI_ARGS", "") or "").strip()
     if extra_args:
         args.extend(shlex.split(extra_args))
 
+    cli_env = None
+    auth_token = _get_cli_auth_token()
+    if auth_token:
+        cli_env = {**os.environ, "ANTHROPIC_AUTH_TOKEN": auth_token}
+
     process = await asyncio.create_subprocess_exec(
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=cli_env,
     )
 
     assistant_text_parts: list[str] = []
@@ -721,16 +746,25 @@ async def _run_mcp_tool(project_slug: str, tool_name: str, tool_input: dict[str,
         return {"error": str(e)}
 
 
+API_MODEL_MAP = {
+    "sonnet": "claude-sonnet-4-6-20250627",
+    "opus": "claude-opus-4-6-20250918",
+    "haiku": "claude-haiku-4-5-20251001",
+}
+
+
 async def _anthropic_messages(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     project_slug: str,
+    model_override: str | None = None,
 ) -> dict[str, Any]:
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    api_key = _get_anthropic_api_key()
     if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not configured")
+        raise RuntimeError("ANTHROPIC_API_KEY is not configured. Set it in Experimental Features settings.")
 
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-3-7-sonnet-latest")
+    short = model_override or os.environ.get("ANTHROPIC_MODEL", "sonnet")
+    model = API_MODEL_MAP.get(short, short)
     max_tokens = int(os.environ.get("CHAT_MAX_TOKENS", "1800"))
 
     headers = {
@@ -767,6 +801,7 @@ async def _run_chat_agent_turn(
     project_slug: str,
     history: list[dict[str, Any]],
     user_message: str,
+    model_override: str | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     tools = _chat_tools_for_anthropic()
     tool_events: list[dict[str, Any]] = []
@@ -776,7 +811,7 @@ async def _run_chat_agent_turn(
     messages.append({"role": "user", "content": user_message})
 
     for _ in range(loop_limit):
-        response = await _anthropic_messages(messages, tools, project_slug)
+        response = await _anthropic_messages(messages, tools, project_slug, model_override=model_override)
         blocks = response.get("content") or []
         text_parts = [b.get("text", "") for b in blocks if b.get("type") == "text"]
         tool_uses = [b for b in blocks if b.get("type") == "tool_use"]
@@ -1495,6 +1530,175 @@ async def get_token_stats(slug: str):
     }
 
 
+@app.get("/api/chat/provider-status")
+async def chat_provider_status():
+    """Check which providers are available."""
+    cli_cmd = (os.environ.get("CLAUDE_CLI_PATH", "claude") or "claude").strip()
+    cli_installed = bool(shutil.which(cli_cmd))
+    cli_logged_in = False
+    if cli_installed:
+        try:
+            check_env = None
+            auth_token = _get_cli_auth_token()
+            if auth_token:
+                check_env = {**os.environ, "ANTHROPIC_AUTH_TOKEN": auth_token}
+            proc = await asyncio.create_subprocess_exec(
+                cli_cmd, "auth", "status",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                env=check_env,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+            cli_logged_in = b'"loggedIn": true' in stdout or b'"loggedIn":true' in stdout
+        except Exception:
+            pass
+    api_key = _get_anthropic_api_key()
+    return {
+        "claude_cli": {"installed": cli_installed, "logged_in": cli_logged_in},
+        "anthropic_api": {"configured": bool(api_key), "key_hint": f"...{api_key[-4:]}" if len(api_key) >= 4 else ""},
+    }
+
+
+@app.put("/api/chat/api-key")
+async def set_chat_api_key(request: Request):
+    """Set Anthropic API key at runtime (not persisted to disk)."""
+    global _runtime_anthropic_api_key
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, 400)
+    key = str(body.get("api_key") or "").strip()
+    if key and not key.startswith("sk-ant-"):
+        return JSONResponse({"error": "Invalid API key format (expected sk-ant-...)"}, 400)
+    _runtime_anthropic_api_key = key
+    return {"ok": True, "configured": bool(key), "key_hint": f"...{key[-4:]}" if len(key) >= 4 else ""}
+
+
+@app.post("/api/chat/cli-login")
+async def cli_login():
+    """Generate PKCE OAuth URL for Claude CLI authentication."""
+    import base64
+    import hashlib
+    import secrets
+
+    code_verifier = secrets.token_urlsafe(43)
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    state = secrets.token_urlsafe(32)
+
+    _pending_oauth[state] = code_verifier
+
+    from urllib.parse import urlencode
+    params = urlencode({
+        "code": "true",
+        "client_id": CLAUDE_OAUTH_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": CLAUDE_OAUTH_REDIRECT_URI,
+        "scope": "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload",
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+    })
+    url = f"https://claude.ai/oauth/authorize?{params}"
+
+    return {"ok": True, "url": url, "state": state}
+
+
+@app.post("/api/chat/cli-login-code")
+async def cli_login_code(request: Request):
+    """Exchange OAuth code for auth token."""
+    global _runtime_cli_auth_token, _runtime_refresh_token
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, 400)
+
+    raw_code = str(body.get("code") or "").strip()
+    state = str(body.get("state") or "").strip()
+    if not raw_code:
+        return JSONResponse({"error": "code required"}, 400)
+
+    # Callback page shows "CODE#STATE" — split on '#'
+    if "#" in raw_code:
+        code, cb_state = raw_code.split("#", 1)
+        if not state:
+            state = cb_state
+    else:
+        code = raw_code
+
+    code_verifier = _pending_oauth.pop(state, "") if state else ""
+    if not code_verifier:
+        # Fallback: try any pending verifier (single-user homelab)
+        if _pending_oauth:
+            _, code_verifier = _pending_oauth.popitem()
+        else:
+            return JSONResponse({"error": "No pending login. Click 'Login Claude CLI' first."}, 400)
+
+    # Exchange code for token
+    try:
+        token_payload = {
+            "grant_type": "authorization_code",
+            "client_id": CLAUDE_OAUTH_CLIENT_ID,
+            "code": code,
+            "state": state,
+            "redirect_uri": CLAUDE_OAUTH_REDIRECT_URI,
+            "code_verifier": code_verifier,
+        }
+        timeout = httpx.Timeout(15.0, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(CLAUDE_OAUTH_TOKEN_URL, json=token_payload)
+
+        if resp.status_code >= 400:
+            detail = resp.text
+            try:
+                detail = resp.json()
+            except Exception:
+                pass
+            logger.error("OAuth token exchange failed (%d): %s", resp.status_code, detail)
+            return JSONResponse({"error": f"Token exchange failed ({resp.status_code}). Try login again."}, 400)
+
+        token_data = resp.json()
+        logger.warning("OAuth token response keys: %s", list(token_data.keys()))
+        access_token = token_data.get("access_token", "")
+        if not access_token:
+            logger.error("No access_token in response: %s", token_data)
+            return JSONResponse({"error": "No access_token in response"}, 400)
+
+        refresh_token = token_data.get("refresh_token", "")
+        expires_in = token_data.get("expires_in", 28800)
+        expires_at = int((time.time() + expires_in) * 1000)  # ms epoch
+        scopes = token_data.get("scope", "").split() if token_data.get("scope") else []
+
+        logger.warning("OAuth login successful, token prefix: %s, expires in %s seconds",
+                     access_token[:20], expires_in)
+        _runtime_cli_auth_token = access_token
+        _runtime_refresh_token = refresh_token
+
+        # Write credentials file for CLI (same format as macOS keychain)
+        cred_data = {
+            "claudeAiOauth": {
+                "accessToken": access_token,
+                "refreshToken": refresh_token,
+                "expiresAt": expires_at,
+                "scopes": scopes,
+            }
+        }
+        cred_path = os.path.expanduser("~/.claude/.credentials.json")
+        try:
+            os.makedirs(os.path.dirname(cred_path), exist_ok=True)
+            with open(cred_path, "w") as f:
+                json.dump(cred_data, f)
+            os.chmod(cred_path, 0o600)
+            logger.warning("Wrote CLI credentials to %s", cred_path)
+        except Exception as e:
+            logger.warning("Could not write CLI credentials file: %s", e)
+
+        return {"ok": True, "logged_in": True}
+    except Exception as e:
+        logger.exception("OAuth token exchange error")
+        return JSONResponse({"error": str(e)}, 500)
+
+
 @app.get("/api/projects/{slug}/chat/messages")
 async def get_chat_messages(slug: str):
     proj = await _resolve_project_id_or_none(slug)
@@ -1558,6 +1762,7 @@ async def stream_chat(slug: str, request: Request):
     user_row = await _store_chat_message(chat_id, "user", message, user_metadata or None)
     project_settings = await _get_project_settings_dict(proj)
     provider = _effective_chat_provider(project_settings)
+    chat_model = {**DEFAULT_PROJECT_SETTINGS, **project_settings}.get("chat_model", "sonnet")
 
     async def event_stream():
         yield _sse("user", row_dict(user_row))
@@ -1567,7 +1772,7 @@ async def stream_chat(slug: str, request: Request):
                 assistant_text = ""
                 tool_events: list[dict[str, Any]] = []
                 approval_events: list[dict[str, Any]] = []
-                async for event in _claude_cli_turn_stream(slug, history, model_user_message):
+                async for event in _claude_cli_turn_stream(slug, history, model_user_message, model_override=chat_model, allowed_tools_override=list(APPROVAL_ALLOWED_TOOLS)):
                     if event.get("type") == "delta":
                         chunk = str(event.get("text") or "")
                         assistant_text += chunk
@@ -1596,7 +1801,7 @@ async def stream_chat(slug: str, request: Request):
                     },
                 )
             else:
-                assistant_text, tool_events = await _run_chat_agent_turn(slug, history, model_user_message)
+                assistant_text, tool_events = await _run_chat_agent_turn(slug, history, model_user_message, model_override=chat_model)
 
                 for evt in tool_events:
                     yield _sse("tool", evt)
@@ -1725,12 +1930,15 @@ async def approve_chat(slug: str, request: Request):
             tool_events: list[dict[str, Any]] = []
             nested_approval_events: list[dict[str, Any]] = []
 
+            approve_settings = await _get_project_settings_dict(proj)
+            approve_model = {**DEFAULT_PROJECT_SETTINGS, **approve_settings}.get("chat_model", "sonnet")
             async for event in _claude_cli_turn_stream(
                 slug,
                 history,
                 approved_model_user_message,
                 permission_mode_override=approval_permission_mode,
                 allowed_tools_override=approved_allowed_tools,
+                model_override=approve_model,
             ):
                 if event.get("type") == "delta":
                     chunk = str(event.get("text") or "")

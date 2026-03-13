@@ -406,15 +406,38 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
             <span class="slider"></span>
           </label>
         </div>
-        <div id="chatProviderRow" class="setting-row" style="display:none">
-          <div class="setting-info">
-            <label for="settingChatProvider">Chat provider</label>
-            <div class="setting-desc">Choose between local Claude CLI and direct Anthropic API</div>
-          </div>
-          <select id="settingChatProvider" class="setting-select" onchange="saveSetting('chat_provider',this.value)">
+        <div id="chatProviderRow" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border)">
+          <label for="settingChatProvider" style="font-size:12px;font-weight:500;color:var(--text);display:block;margin-bottom:6px">Chat provider</label>
+          <select id="settingChatProvider" class="setting-select" style="width:100%" onchange="saveSetting('chat_provider',this.value)">
             <option value="claude_cli">Claude CLI</option>
             <option value="anthropic_api">Anthropic API</option>
           </select>
+        </div>
+        <div id="chatModelRow" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border)">
+          <label for="settingChatModel" style="font-size:12px;font-weight:500;color:var(--text);display:block;margin-bottom:6px">Model</label>
+          <select id="settingChatModel" class="setting-select" style="width:100%" onchange="saveSetting('chat_model',this.value)">
+            <option value="sonnet">Sonnet 4.6</option>
+            <option value="opus">Opus 4.6</option>
+            <option value="haiku">Haiku 4.5</option>
+          </select>
+        </div>
+        <div id="chatProviderStatus" style="display:none;padding:8px 16px;font-size:11px;color:var(--text-muted)"></div>
+        <div id="chatCliLoginRow" style="display:none;padding:4px 16px 8px">
+          <button id="chatCliLoginBtn" onclick="startCliLogin()" style="padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:11px;cursor:pointer;width:100%">Login Claude CLI</button>
+          <div id="chatCliLoginInfo" style="font-size:11px;color:var(--text-muted);margin-top:6px;word-break:break-all"></div>
+          <div id="chatCliCodeRow" style="display:none;margin-top:8px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Paste the authentication code:</div>
+            <input type="text" id="chatCliCodeInput" placeholder="Paste code here..." style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;font-family:monospace;margin-bottom:6px;box-sizing:border-box">
+            <button onclick="submitCliCode()" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--primary);color:#fff;font-size:11px;cursor:pointer;width:100%">Submit Code</button>
+          </div>
+        </div>
+        <div id="chatApiKeyRow" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border)">
+          <label for="chatApiKeyInput" style="font-size:12px;font-weight:500;color:var(--text);display:block;margin-bottom:2px">Anthropic API Key</label>
+          <div id="chatApiKeyHint" style="font-size:10px;color:var(--text-muted);margin-bottom:6px">Required for Anthropic API provider</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="password" id="chatApiKeyInput" placeholder="sk-ant-..." style="flex:1;min-width:0;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;box-sizing:border-box">
+            <button onclick="saveApiKey()" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:11px;cursor:pointer;white-space:nowrap">Save</button>
+          </div>
         </div>
       </div>
       <div class="settings-note">Settings are per-project and synced with MCP tools. Changes take effect immediately.</div>
@@ -1712,6 +1735,8 @@ async function loadSettings(){
   chatEnabled=!!data.chat_enabled;
   const chatEnabledCheckbox=document.getElementById('settingChatEnabled');
   if(chatEnabledCheckbox)chatEnabledCheckbox.checked=chatEnabled;
+  const modelSelect=document.getElementById('settingChatModel');
+  if(modelSelect&&data.chat_model)modelSelect.value=data.chat_model;
   applyChatVisibility();
   return data;
 }
@@ -1720,12 +1745,124 @@ function applyChatVisibility(){
   document.querySelector('.chat-dock').style.display=chatEnabled?'':'none';
   const providerRow=document.getElementById('chatProviderRow');
   if(providerRow)providerRow.style.display=chatEnabled?'':'none';
+  const modelRow=document.getElementById('chatModelRow');
+  if(modelRow)modelRow.style.display=chatEnabled?'':'none';
+  const statusEl=document.getElementById('chatProviderStatus');
+  if(statusEl)statusEl.style.display=chatEnabled?'':'none';
+  const apiKeyRow=document.getElementById('chatApiKeyRow');
+  if(apiKeyRow)apiKeyRow.style.display=chatEnabled?'':'none';
+  if(chatEnabled)loadProviderStatus();
   if(!chatEnabled){
     if(chatStreamAbort){chatStreamAbort.abort();chatStreamAbort=null;}
     chatMessages=[];chatDraft='';chatError='';chatToolEvents=[];
     chatApprovals=[];chatApprovalPendingId='';chatSelectionContext=null;
     chatPendingAttachments=[];chatStreaming=false;chatTurnCompleted=false;
     renderChatMessages();
+  }
+}
+
+async function loadProviderStatus(){
+  try{
+    const res=await fetch('/api/chat/provider-status');
+    if(!res.ok)return;
+    const s=await res.json();
+    const el=document.getElementById('chatProviderStatus');
+    if(!el)return;
+    const cli=s.claude_cli;
+    const api=s.anthropic_api;
+    let html='<strong>Provider status:</strong> ';
+    if(cli.installed){
+      html+=cli.logged_in?'<span style="color:#22c55e">CLI: logged in</span>':'<span style="color:#ef4444">CLI: not logged in</span>';
+    }else{
+      html+='<span style="color:var(--text-muted)">CLI: not installed</span>';
+    }
+    html+=' &middot; ';
+    html+=api.configured?`<span style="color:#22c55e">API key: ${api.key_hint}</span>`:'<span style="color:#ef4444">API key: not set</span>';
+    el.innerHTML=html;
+    // Show CLI login button only when CLI is installed but not logged in
+    const loginRow=document.getElementById('chatCliLoginRow');
+    if(loginRow)loginRow.style.display=(cli.installed&&!cli.logged_in)?'':'none';
+  }catch(e){}
+}
+
+let _cliLoginState='';
+async function startCliLogin(){
+  const btn=document.getElementById('chatCliLoginBtn');
+  const info=document.getElementById('chatCliLoginInfo');
+  if(btn)btn.disabled=true;
+  if(info)info.textContent='Starting login...';
+  try{
+    const res=await fetch('/api/chat/cli-login',{method:'POST'});
+    const data=await res.json();
+    if(!res.ok){
+      if(info)info.textContent=data.error||'Login failed';
+      if(btn)btn.disabled=false;
+      return;
+    }
+    _cliLoginState=data.state||'';
+    if(info)info.innerHTML='1. <a href="'+data.url+'" target="_blank" rel="noopener" style="color:#818cf8">Open this link</a> and click Authorize<br>2. Copy the code and paste it below';
+    const codeRow=document.getElementById('chatCliCodeRow');
+    if(codeRow)codeRow.style.display='';
+    const codeInput=document.getElementById('chatCliCodeInput');
+    if(codeInput){codeInput.value='';codeInput.focus();}
+  }catch(e){
+    if(info)info.textContent='Login request failed';
+    if(btn)btn.disabled=false;
+  }
+}
+
+async function submitCliCode(){
+  const codeInput=document.getElementById('chatCliCodeInput');
+  const info=document.getElementById('chatCliLoginInfo');
+  const btn=document.getElementById('chatCliLoginBtn');
+  const codeRow=document.getElementById('chatCliCodeRow');
+  if(!codeInput)return;
+  const code=codeInput.value.trim();
+  if(!code){if(info)info.textContent='Please paste the code first';return;}
+  if(info)info.innerHTML='<span style="color:var(--text-muted)">Exchanging code for token...</span>';
+  try{
+    const res=await fetch('/api/chat/cli-login-code',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code,state:_cliLoginState})
+    });
+    const data=await res.json();
+    if(data.ok&&data.logged_in){
+      if(info)info.innerHTML='<span style="color:#22c55e">Login successful!</span>';
+      if(codeRow)codeRow.style.display='none';
+      if(btn)btn.disabled=false;
+      loadProviderStatus();
+    }else{
+      if(info)info.textContent=data.error||'Login failed. Try again.';
+      if(btn)btn.disabled=false;
+    }
+  }catch(e){
+    if(info)info.textContent='Failed to submit code';
+    if(btn)btn.disabled=false;
+  }
+}
+
+async function saveApiKey(){
+  const input=document.getElementById('chatApiKeyInput');
+  if(!input)return;
+  const key=input.value.trim();
+  try{
+    const res=await fetch('/api/chat/api-key',{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({api_key:key})
+    });
+    const data=await res.json();
+    if(!res.ok){
+      const hint=document.getElementById('chatApiKeyHint');
+      if(hint)hint.textContent=data.error||'Failed to save';
+      return;
+    }
+    input.value='';
+    const hint=document.getElementById('chatApiKeyHint');
+    if(hint)hint.textContent=data.configured?`Saved (${data.key_hint})`:'Key cleared';
+    loadProviderStatus();
+  }catch(e){
+    const hint=document.getElementById('chatApiKeyHint');
+    if(hint)hint.textContent='Failed to save';
   }
 }
 
