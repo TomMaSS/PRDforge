@@ -1,11 +1,16 @@
 """Shared settings schema and validation for PRDforge."""
 
-DEFAULT_PROJECT_SETTINGS = {"claude_comment_replies": True}
+DEFAULT_PROJECT_SETTINGS = {
+    "claude_comment_replies": True,
+    "chat_enabled": False,
+    "chat_provider": "claude_cli",
+}
 CHAT_PROVIDER_VALUES = {"claude_cli", "anthropic_api"}
 
 # Whitelist: key -> (type, default)
 SETTINGS_SCHEMA = {
     "claude_comment_replies": (bool, True),
+    "chat_enabled": (bool, False),
     "chat_provider": (str, "claude_cli"),
 }
 

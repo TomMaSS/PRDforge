@@ -393,15 +393,29 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
           <span class="slider"></span>
         </label>
       </div>
-      <div class="setting-row">
-        <div class="setting-info">
-          <label for="settingChatProvider">Chat provider</label>
-          <div class="setting-desc">Choose between local Claude CLI and direct Anthropic API</div>
+      <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+        <div style="font-size:14px;font-weight:600;color:#f59e0b;margin-bottom:4px">Experimental Features</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">Preview features that may change or be removed</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <label for="settingChatEnabled">Chat Integration</label>
+            <div class="setting-desc">Always-visible AI chat dock for project assistance</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="settingChatEnabled" onchange="saveSetting('chat_enabled',this.checked)">
+            <span class="slider"></span>
+          </label>
         </div>
-        <select id="settingChatProvider" class="setting-select" onchange="saveSetting('chat_provider',this.value)">
-          <option value="claude_cli">Claude CLI</option>
-          <option value="anthropic_api">Anthropic API</option>
-        </select>
+        <div id="chatProviderRow" class="setting-row" style="display:none">
+          <div class="setting-info">
+            <label for="settingChatProvider">Chat provider</label>
+            <div class="setting-desc">Choose between local Claude CLI and direct Anthropic API</div>
+          </div>
+          <select id="settingChatProvider" class="setting-select" onchange="saveSetting('chat_provider',this.value)">
+            <option value="claude_cli">Claude CLI</option>
+            <option value="anthropic_api">Anthropic API</option>
+          </select>
+        </div>
       </div>
       <div class="settings-note">Settings are per-project and synced with MCP tools. Changes take effect immediately.</div>
     </div>
@@ -412,7 +426,7 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
     <div class="empty">Select a section to view</div>
   </div>
 </div>
-<div class="chat-dock">
+<div class="chat-dock" style="display:none">
   <div class="chat-header">
     <h3>Project Chat</h3>
     <div class="chat-meta" id="chatProviderMeta">Claude CLI</div>
@@ -480,6 +494,8 @@ let chatApprovalPendingId='';
 let chatSelectionContext=null;
 let chatPendingAttachments=[];
 let chatTurnCompleted=false;
+let chatEnabled=false;
+let chatStreamAbort=null;
 let liveRefreshRunning=false;
 let liveRefreshPending=false;
 const CHAT_MAX_ATTACHMENTS=5;
@@ -590,6 +606,7 @@ async function switchProject(slug){
   const sel=document.getElementById('projSelect');
   if(sel)sel.value=slug;
   _statsCache=null;mainViewMode='empty';
+  if(chatStreamAbort){chatStreamAbort.abort();chatStreamAbort=null;}
   chatMessages=[];chatDraft='';chatStreaming=false;chatToolEvents=[];chatError='';
   chatApprovals=[];
   chatApprovalPendingId='';
@@ -610,10 +627,10 @@ async function switchProject(slug){
   activeSection=null;activeFilter=null;activeTags=[];
   clearGraph();
   document.getElementById('mainContent').innerHTML='<div class="empty">Select a section to view</div>';
-  loadSettings();
+  await loadSettings();
   renderChatSelectionContext();
   renderChatPendingAttachments();
-  loadChatMessages();
+  if(chatEnabled)loadChatMessages();
   if(activeTab==='stats')loadTokenStats();
 }
 
@@ -1522,6 +1539,7 @@ async function sendChatMessage(){
   });
   renderChatMessages();
 
+  chatStreamAbort=new AbortController();
   try{
     const res=await fetch(`/api/projects/${currentProject}/chat/stream`,{
       method:'POST',
@@ -1530,7 +1548,8 @@ async function sendChatMessage(){
         message,
         selection_context:selectionContext,
         attachments,
-      })
+      }),
+      signal:chatStreamAbort.signal
     });
 
     if(!res.ok){
@@ -1561,8 +1580,10 @@ async function sendChatMessage(){
 
     await loadChatMessages();
   }catch(e){
-    chatError=(e&&e.message)?e.message:'Chat request failed';
+    if(e.name==='AbortError'){}
+    else{chatError=(e&&e.message)?e.message:'Chat request failed';}
   }finally{
+    chatStreamAbort=null;
     chatStreaming=false;
     chatDraft='';
     renderChatMessages();
@@ -1597,11 +1618,13 @@ async function approveChat(messageId){
   chatError='';
   renderChatMessages();
 
+  chatStreamAbort=new AbortController();
   try{
     const res=await fetch(`/api/projects/${currentProject}/chat/approve`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({assistant_message_id:messageId})
+      body:JSON.stringify({assistant_message_id:messageId}),
+      signal:chatStreamAbort.signal
     });
 
     if(!res.ok){
@@ -1629,8 +1652,10 @@ async function approveChat(messageId){
 
     await loadChatMessages();
   }catch(e){
-    chatError=(e&&e.message)?e.message:'Approval request failed';
+    if(e.name==='AbortError'){}
+    else{chatError=(e&&e.message)?e.message:'Approval request failed';}
   }finally{
+    chatStreamAbort=null;
     chatStreaming=false;
     chatApprovalPendingId='';
     chatDraft='';
@@ -1684,6 +1709,24 @@ async function loadSettings(){
   const providerSelect=document.getElementById('settingChatProvider');
   if(providerSelect)providerSelect.value=provider;
   updateChatProviderMeta(provider);
+  chatEnabled=!!data.chat_enabled;
+  const chatEnabledCheckbox=document.getElementById('settingChatEnabled');
+  if(chatEnabledCheckbox)chatEnabledCheckbox.checked=chatEnabled;
+  applyChatVisibility();
+  return data;
+}
+
+function applyChatVisibility(){
+  document.querySelector('.chat-dock').style.display=chatEnabled?'':'none';
+  const providerRow=document.getElementById('chatProviderRow');
+  if(providerRow)providerRow.style.display=chatEnabled?'':'none';
+  if(!chatEnabled){
+    if(chatStreamAbort){chatStreamAbort.abort();chatStreamAbort=null;}
+    chatMessages=[];chatDraft='';chatError='';chatToolEvents=[];
+    chatApprovals=[];chatApprovalPendingId='';chatSelectionContext=null;
+    chatPendingAttachments=[];chatStreaming=false;chatTurnCompleted=false;
+    renderChatMessages();
+  }
 }
 
 async function saveSetting(key,value){
@@ -1696,6 +1739,11 @@ async function saveSetting(key,value){
   const data=await res.json();
   const provider=(data.chat_provider==='anthropic_api')?'anthropic_api':'claude_cli';
   updateChatProviderMeta(provider);
+  if(key==='chat_enabled'){
+    chatEnabled=!!value;
+    applyChatVisibility();
+    if(chatEnabled)loadChatMessages();
+  }
 }
 
 function updateChatProviderMeta(provider){

@@ -211,6 +211,8 @@ CHAT_ALLOWED_MCP_TOOLS: dict[str, dict[str, Any]] = {
     },
 }
 
+APPROVAL_ALLOWED_TOOLS = {f"mcp__prd-forge__{k}" for k in CHAT_ALLOWED_MCP_TOOLS}
+
 
 def _chat_tools_for_anthropic() -> list[dict[str, Any]]:
     return [
@@ -890,6 +892,13 @@ async def _get_project_settings_dict(project_id) -> dict[str, Any]:
     return {}
 
 
+async def _is_chat_enabled(project_id) -> bool:
+    """Check if chat is enabled for a project."""
+    raw = await _get_project_settings_dict(project_id)
+    merged = {**DEFAULT_PROJECT_SETTINGS, **raw}
+    return merged.get("chat_enabled", False)
+
+
 def _metadata_dict(raw: Any) -> dict[str, Any] | None:
     if isinstance(raw, dict):
         return raw
@@ -1491,6 +1500,8 @@ async def get_chat_messages(slug: str):
     proj = await _resolve_project_id_or_none(slug)
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    if not await _is_chat_enabled(proj):
+        return JSONResponse({"error": "Chat is disabled. Enable in Experimental Features settings."}, 403)
     rows = await _get_chat_messages_by_project(slug)
     return {"messages": rows}
 
@@ -1500,6 +1511,8 @@ async def clear_chat(slug: str):
     proj = await _resolve_project_id_or_none(slug)
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    if not await _is_chat_enabled(proj):
+        return JSONResponse({"error": "Chat is disabled. Enable in Experimental Features settings."}, 403)
     chat_id = await _get_or_create_project_chat(proj)
     result = await pool.execute("DELETE FROM chat_messages WHERE chat_id = $1", chat_id)
     deleted = int(result.split()[-1])
@@ -1511,6 +1524,8 @@ async def stream_chat(slug: str, request: Request):
     proj = await _resolve_project_id_or_none(slug)
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    if not await _is_chat_enabled(proj):
+        return JSONResponse({"error": "Chat is disabled. Enable in Experimental Features settings."}, 403)
 
     try:
         body = await request.json()
@@ -1620,6 +1635,8 @@ async def approve_chat(slug: str, request: Request):
     proj = await _resolve_project_id_or_none(slug)
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    if not await _is_chat_enabled(proj):
+        return JSONResponse({"error": "Chat is disabled. Enable in Experimental Features settings."}, 403)
 
     try:
         body = await request.json()
@@ -1696,7 +1713,7 @@ async def approve_chat(slug: str, request: Request):
     if approval_permission_mode == "dontAsk":
         approval_permission_mode = "acceptEdits"
 
-    approved_allowed_tools = ["mcp__prd-forge__*"] + [
+    approved_allowed_tools = [
         f"mcp__prd-forge__{tool_name}"
         for tool_name in CHAT_ALLOWED_MCP_TOOLS.keys()
     ]

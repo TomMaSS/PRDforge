@@ -2,6 +2,8 @@
 
 import json
 
+import pytest_asyncio
+
 
 class TestUIEndpoints:
     async def test_index_html(self, ui_client):
@@ -359,7 +361,87 @@ class TestOwnershipFix:
         assert resp.status_code == 404
 
 
+class TestChatGateDisabled:
+    """Chat endpoints return 403 when chat_enabled is false (default)."""
+
+    async def test_chat_enabled_default_false(self, ui_client):
+        resp = await ui_client.get("/api/projects/snaphabit/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("chat_enabled") is not True
+
+    async def test_chat_messages_returns_403_when_disabled(self, ui_client):
+        resp = await ui_client.get("/api/projects/snaphabit/chat/messages")
+        assert resp.status_code == 403
+
+    async def test_chat_stream_returns_403_when_disabled(self, ui_client):
+        resp = await ui_client.post(
+            "/api/projects/snaphabit/chat/stream",
+            json={"message": "hello"},
+        )
+        assert resp.status_code == 403
+
+    async def test_chat_clear_returns_403_when_disabled(self, ui_client):
+        resp = await ui_client.post("/api/projects/snaphabit/chat/clear")
+        assert resp.status_code == 403
+
+    async def test_chat_approve_returns_403_when_disabled(self, ui_client):
+        resp = await ui_client.post(
+            "/api/projects/snaphabit/chat/approve",
+            json={"assistant_message_id": "00000000-0000-0000-0000-000000000000"},
+        )
+        assert resp.status_code == 403
+
+
+class TestChatGateEnabled:
+    """Verify chat can be toggled on."""
+
+    async def test_chat_enabled_toggle(self, ui_client):
+        resp = await ui_client.put(
+            "/api/projects/snaphabit/settings",
+            json={"chat_enabled": True},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["chat_enabled"] is True
+
+    async def test_chat_messages_returns_200_when_enabled(self, ui_client):
+        await ui_client.put(
+            "/api/projects/snaphabit/settings",
+            json={"chat_enabled": True},
+        )
+        resp = await ui_client.get("/api/projects/snaphabit/chat/messages")
+        assert resp.status_code == 200
+
+    async def test_chat_clear_returns_200_when_enabled(self, ui_client):
+        await ui_client.put(
+            "/api/projects/snaphabit/settings",
+            json={"chat_enabled": True},
+        )
+        resp = await ui_client.post("/api/projects/snaphabit/chat/clear")
+        assert resp.status_code == 200
+
+
+class TestApprovalToolsParity:
+    """APPROVAL_ALLOWED_TOOLS must be derived from CHAT_ALLOWED_MCP_TOOLS."""
+
+    async def test_approval_tools_derived_from_chat_tools(self):
+        import app as ui_app
+
+        expected = {f"mcp__prd-forge__{k}" for k in ui_app.CHAT_ALLOWED_MCP_TOOLS}
+        assert ui_app.APPROVAL_ALLOWED_TOOLS == expected
+
+
 class TestChatUI:
+    @pytest_asyncio.fixture(autouse=True)
+    async def enable_chat(self, ui_client):
+        """Enable chat for all tests in this class."""
+        resp = await ui_client.put(
+            "/api/projects/snaphabit/settings",
+            json={"chat_enabled": True},
+        )
+        assert resp.status_code == 200
+
     async def test_chat_messages_empty(self, ui_client):
         resp = await ui_client.get("/api/projects/snaphabit/chat/messages")
         assert resp.status_code == 200
@@ -664,9 +746,9 @@ class TestTokenStats:
         assert d["total_loaded_tokens"] == 2000
         assert d["total_saved_tokens"] == 28000
         assert d["savings_percent"] == 93.3
-            assert d["project_stats"]["sections"] >= 12
-            assert d["project_stats"]["dependencies"] >= 1
-            assert d["project_stats"]["revisions"] >= 0
+        assert d["project_stats"]["sections"] >= 12
+        assert d["project_stats"]["dependencies"] >= 1
+        assert d["project_stats"]["revisions"] >= 0
         assert len(d["by_operation"]) >= 1
         ops = {o["operation"]: o for o in d["by_operation"]}
         assert ops["read_section"]["count"] == 2
@@ -689,9 +771,9 @@ class TestTokenStats:
         assert d["total_loaded_tokens"] == 0
         assert d["total_saved_tokens"] == 0
         assert d["savings_percent"] == 0
-            assert d["project_stats"]["sections"] >= 12
-            assert d["project_stats"]["dependencies"] >= 1
-            assert d["project_stats"]["revisions"] >= 0
+        assert d["project_stats"]["sections"] >= 12
+        assert d["project_stats"]["dependencies"] >= 1
+        assert d["project_stats"]["revisions"] >= 0
         assert len(d["daily_trend"]) == 7
         assert all(e["operations"] == 0 and e["tokens_saved"] == 0 for e in d["daily_trend"])
         days = [e["day"] for e in d["daily_trend"]]

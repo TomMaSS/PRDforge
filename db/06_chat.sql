@@ -1,4 +1,7 @@
 -- Project chat memory (one chat thread per project)
+-- Migration: For existing volumes, run:
+--   docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /docker-entrypoint-initdb.d/06_chat.sql'
+-- All statements are idempotent (IF NOT EXISTS).
 
 CREATE TABLE IF NOT EXISTS project_chats (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
