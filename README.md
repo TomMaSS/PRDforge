@@ -28,7 +28,7 @@ Claude always has enough context to make informed edits without paying for the e
 - **Dependency-aware context** — sections know what they depend on. When Claude reads one, it automatically gets summaries of upstream sections for context.
 - **Full revision history** — every content change creates a revision. Roll back any section to any point. No content is ever lost.
 - **Google Docs-style comments** — leave inline comments anchored to specific text, Claude reads them, implements changes, resolves them. Threaded replies included.
-- **Web UI** — browse specs, leave comments, create new projects, view dependency graph, toggle dark/light theme. Experimental: always-visible project Claude chat with selection context, file attachments, model selector, and OAuth login.
+- **Web UI** — browse specs, leave comments, create new projects, view dependency graph, toggle dark/light theme. Experimental: always-visible project Claude chat with selection context, file attachments, and model selector.
 - **One command to install** — `./install.sh` handles Docker, MCP config, and validation in ~15 seconds.
 
 ## Architecture
@@ -44,7 +44,7 @@ graph LR
 Three Docker services, all localhost-only:
 - **PostgreSQL 16** — source of truth (10 tables, 2 views)
 - **MCP Server** — 31 tools for Claude integration (stdio + HTTP transports)
-- **Web UI** — browser interface with project switching/creation, inline comments, dependency graph, dark/light theme. Experimental chat with OAuth login, model selector, and MCP tool access
+- **Web UI** — browser interface with project switching/creation, inline comments, dependency graph, dark/light theme. Experimental chat with model selector and MCP tool access
 
 ## Quick Start
 
@@ -168,11 +168,7 @@ Chat is an **experimental feature**, disabled by default. Enable it per-project 
 
 ### Authentication
 
-Chat requires authentication with Anthropic. Two options:
-
-1. **Claude CLI login (recommended)** — In Settings, click **Login Claude CLI**. You'll be redirected to claude.ai to authorize, then paste the code back in the UI. The OAuth token is stored in the container's `.credentials.json` (separate from your host machine's Claude auth). Works with Pro/Max subscriptions.
-
-2. **Anthropic API key** — Paste your `sk-ant-api03-...` key in the **Anthropic API Key** field. Set provider to "Anthropic API".
+Chat requires an Anthropic API key. Paste your `sk-ant-api03-...` key in **Settings → Experimental Features → Anthropic API Key** and set provider to "Anthropic API".
 
 ### Features
 
