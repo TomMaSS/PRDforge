@@ -480,7 +480,7 @@ class TestChatUI:
     async def test_chat_stream_and_persisted_transcript(self, ui_client, monkeypatch):
         import app as ui_app
 
-        async def fake_agent(project_slug, history, user_message):
+        async def fake_agent(project_slug, history, user_message, **kwargs):
             assert project_slug == "snaphabit"
             assert user_message == "Summarize project"
             return (
@@ -511,7 +511,7 @@ class TestChatUI:
     async def test_chat_stream_with_selection_context(self, ui_client, monkeypatch):
         import app as ui_app
 
-        async def fake_agent(project_slug, history, user_message):
+        async def fake_agent(project_slug, history, user_message, **kwargs):
             assert project_slug == "snaphabit"
             assert "Clarify this" in user_message
             assert "Selected context from PRD Forge Web UI" in user_message
@@ -552,7 +552,7 @@ class TestChatUI:
     async def test_chat_stream_with_attachments(self, ui_client, monkeypatch):
         import app as ui_app
 
-        async def fake_agent(project_slug, history, user_message):
+        async def fake_agent(project_slug, history, user_message, **kwargs):
             assert project_slug == "snaphabit"
             assert "Please review attached files." in user_message
             assert "[Attached files from PRD Forge Web UI]" in user_message
@@ -593,7 +593,7 @@ class TestChatUI:
     async def test_chat_clear(self, ui_client, monkeypatch):
         import app as ui_app
 
-        async def fake_agent(project_slug, history, user_message):
+        async def fake_agent(project_slug, history, user_message, **kwargs):
             return ("Done", [])
 
         monkeypatch.setattr(ui_app, "_run_chat_agent_turn", fake_agent)
@@ -664,6 +664,7 @@ class TestChatUI:
             user_message,
             permission_mode_override=None,
             allowed_tools_override=None,
+            **kwargs,
         ):
             assert project_slug == "snaphabit"
             assert permission_mode_override == "acceptEdits"
@@ -778,3 +779,158 @@ class TestTokenStats:
         assert all(e["operations"] == 0 and e["tokens_saved"] == 0 for e in d["daily_trend"])
         days = [e["day"] for e in d["daily_trend"]]
         assert days == sorted(days)
+
+
+class TestSectionPatch:
+    """PATCH /api/projects/{slug}/sections/{section} for metadata updates."""
+
+    async def test_patch_status(self, ui_client):
+        resp = await ui_client.patch(
+            "/api/projects/snaphabit/sections/overview",
+            json={"status": "in_progress"},
+        )
+        assert resp.status_code == 200
+        assert "status" in resp.json()["updated"]
+        resp2 = await ui_client.get("/api/projects/snaphabit/sections/overview")
+        assert resp2.json()["section"]["status"] == "in_progress"
+
+    async def test_patch_status_all_values(self, ui_client):
+        for status in ["draft", "in_progress", "review", "approved", "outdated"]:
+            resp = await ui_client.patch(
+                "/api/projects/snaphabit/sections/overview",
+                json={"status": status},
+            )
+            assert resp.status_code == 200
+            resp2 = await ui_client.get("/api/projects/snaphabit/sections/overview")
+            assert resp2.json()["section"]["status"] == status
+
+    async def test_patch_invalid_status(self, ui_client):
+        resp = await ui_client.patch(
+            "/api/projects/snaphabit/sections/overview",
+            json={"status": "bogus"},
+        )
+        assert resp.status_code == 400
+        assert "status must be one of" in resp.json()["error"]
+
+    async def test_patch_empty_body(self, ui_client):
+        resp = await ui_client.patch(
+            "/api/projects/snaphabit/sections/overview",
+            json={},
+        )
+        assert resp.status_code == 400
+        assert "nothing to update" in resp.json()["error"]
+
+    async def test_patch_unknown_fields_ignored(self, ui_client):
+        resp = await ui_client.patch(
+            "/api/projects/snaphabit/sections/overview",
+            json={"status": "review", "unknown_field": "value"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == ["status"]
+
+    async def test_patch_nonexistent_project(self, ui_client):
+        resp = await ui_client.patch(
+            "/api/projects/nonexistent/sections/overview",
+            json={"status": "draft"},
+        )
+        assert resp.status_code == 404
+
+    async def test_patch_nonexistent_section(self, ui_client):
+        resp = await ui_client.patch(
+            "/api/projects/snaphabit/sections/nonexistent",
+            json={"status": "draft"},
+        )
+        assert resp.status_code == 404
+
+    async def test_patch_summary(self, ui_client):
+        resp = await ui_client.patch(
+            "/api/projects/snaphabit/sections/overview",
+            json={"summary": "Updated summary text"},
+        )
+        assert resp.status_code == 200
+        resp2 = await ui_client.get("/api/projects/snaphabit/sections/overview")
+        assert resp2.json()["section"]["summary"] == "Updated summary text"
+
+    async def test_patch_multiple_fields(self, ui_client):
+        resp = await ui_client.patch(
+            "/api/projects/snaphabit/sections/overview",
+            json={"status": "approved", "summary": "Multi-field update"},
+        )
+        assert resp.status_code == 200
+        assert set(resp.json()["updated"]) == {"status", "summary"}
+
+
+class TestChatModelSetting:
+    """chat_model setting validation and persistence."""
+
+    async def test_set_chat_model(self, ui_client):
+        resp = await ui_client.put(
+            "/api/projects/snaphabit/settings",
+            json={"chat_model": "opus"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["chat_model"] == "opus"
+
+    async def test_chat_model_roundtrip(self, ui_client):
+        for model in ["sonnet", "opus", "haiku"]:
+            resp = await ui_client.put(
+                "/api/projects/snaphabit/settings",
+                json={"chat_model": model},
+            )
+            assert resp.status_code == 200
+            resp2 = await ui_client.get("/api/projects/snaphabit/settings")
+            assert resp2.json()["chat_model"] == model
+
+    async def test_invalid_chat_model(self, ui_client):
+        resp = await ui_client.put(
+            "/api/projects/snaphabit/settings",
+            json={"chat_model": "gpt-4"},
+        )
+        assert resp.status_code == 400
+
+    async def test_chat_model_default(self, ui_client):
+        resp = await ui_client.get("/api/projects/snaphabit/settings")
+        assert resp.json().get("chat_model", "sonnet") in {"sonnet", "opus", "haiku"}
+
+
+class TestChatProviderStatus:
+    """GET /api/chat/provider-status and OAuth login endpoints."""
+
+    async def test_provider_status_shape(self, ui_client):
+        resp = await ui_client.get("/api/chat/provider-status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "claude_cli" in data
+        assert "anthropic_api" in data
+        assert "installed" in data["claude_cli"]
+        assert "logged_in" in data["claude_cli"]
+        assert "configured" in data["anthropic_api"]
+
+    async def test_cli_login_generates_url(self, ui_client):
+        resp = await ui_client.post("/api/chat/cli-login")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert "url" in data
+        assert "state" in data
+        assert "claude.ai/oauth/authorize" in data["url"]
+        assert "code_challenge" in data["url"]
+
+    async def test_cli_login_code_requires_code(self, ui_client):
+        resp = await ui_client.post(
+            "/api/chat/cli-login-code",
+            json={"code": "", "state": ""},
+        )
+        assert resp.status_code == 400
+        assert "code required" in resp.json()["error"]
+
+    async def test_cli_login_code_no_pending(self, ui_client):
+        """When no cli-login was called first, code exchange should fail."""
+        import app as ui_app
+        ui_app._pending_oauth.clear()
+        resp = await ui_client.post(
+            "/api/chat/cli-login-code",
+            json={"code": "fakecode#fakestate", "state": "unknown"},
+        )
+        assert resp.status_code == 400
+        assert "No pending login" in resp.json()["error"]
