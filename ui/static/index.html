@@ -221,6 +221,18 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 .chat-bubble{max-width:92%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);font-size:13px;line-height:1.55;word-break:break-word}
 .chat-bubble.user{align-self:flex-end;background:var(--accent);border-color:var(--accent);color:#fff}
 .chat-bubble.assistant{align-self:flex-start;background:var(--secondary);color:var(--text)}
+.chat-md p{margin:0 0 8px 0}.chat-md p:last-child{margin:0}
+.chat-md ul,.chat-md ol{margin:4px 0;padding-left:20px}.chat-md li{margin:2px 0}
+.chat-md code{background:rgba(0,0,0,0.2);padding:1px 4px;border-radius:3px;font-size:12px}
+.chat-md pre{background:rgba(0,0,0,0.25);padding:8px;border-radius:6px;overflow-x:auto;margin:6px 0;font-size:12px}
+.chat-md pre code{background:none;padding:0}
+.chat-md table{border-collapse:collapse;margin:6px 0;font-size:12px;width:100%}
+.chat-md th,.chat-md td{border:1px solid var(--border);padding:4px 8px;text-align:left}
+.chat-md th{background:rgba(0,0,0,0.15);font-weight:600}
+.chat-md h1,.chat-md h2,.chat-md h3,.chat-md h4{margin:8px 0 4px;font-weight:600}
+.chat-md h1{font-size:16px}.chat-md h2{font-size:15px}.chat-md h3{font-size:14px}.chat-md h4{font-size:13px}
+.chat-md blockquote{border-left:3px solid var(--border);margin:6px 0;padding:2px 10px;color:var(--text-sec)}
+.chat-md strong{font-weight:600}.chat-md hr{border:none;border-top:1px solid var(--border);margin:8px 0}
 .chat-bubble.system{align-self:flex-start;background:var(--surface);color:var(--text-sec)}
 .chat-msg-context{margin-bottom:8px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.12)}
 .chat-msg-context-head{font-size:11px;font-weight:600;opacity:0.95;margin-bottom:4px}
@@ -260,6 +272,8 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
 .chat-compose-actions button:hover{opacity:0.88}
 .chat-clear{background:var(--secondary);color:var(--text);border:1px solid var(--border) !important}
 .chat-send{background:var(--accent);color:#fff}
+.chat-progress-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse-dot 1s ease-in-out infinite}
+@keyframes pulse-dot{0%,100%{opacity:.3}50%{opacity:1}}
 .chat-send[disabled]{opacity:0.5;cursor:not-allowed}
 
 /* Settings panel */
@@ -473,9 +487,14 @@ body.collapsed .sidebar-panel{width:0;min-width:0;overflow:hidden}
       </div>
       <input id="chatFileInput" type="file" multiple style="display:none" onchange="handleChatFilesSelected(event)">
       <textarea id="chatInput" placeholder="Ask Claude about this project..." onkeydown="handleChatKeydown(event)"></textarea>
+      <div id="chatProgressBar" style="display:none;padding:4px 8px;font-size:11px;color:var(--text-muted);display:none;align-items:center;gap:6px">
+        <span class="chat-progress-dot"></span>
+        <span id="chatProgressText">Thinking...</span>
+      </div>
       <div class="chat-compose-actions">
         <button class="chat-clear" onclick="openChatFilePicker()">Attach files</button>
         <button class="chat-clear" onclick="clearChat()">Clear</button>
+        <button class="chat-stop" id="chatStopBtn" onclick="stopChat()" style="display:none;background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">Stop</button>
         <button class="chat-send" id="chatSendBtn" onclick="sendChatMessage()">Send</button>
       </div>
     </div>
@@ -509,9 +528,46 @@ const renderer=new marked.Renderer();
 renderer.code=function({text,lang}){const hl=lang&&hljs.getLanguage(lang)?hljs.highlight(text,{language:lang}).value:hljs.highlightAuto(text).value;return `<pre><code class="hljs language-${lang||''}">${hl}</code></pre>`;};
 marked.setOptions({renderer});
 const STATUS_COLORS={approved:'var(--approved)',review:'var(--review)',in_progress:'var(--in_progress)',draft:'var(--draft)',outdated:'var(--outdated)'};
+const STATUS_OPTIONS=['draft','in_progress','review','approved','outdated'];
+
+function toggleStatusDropdown(e,slug,currentStatus){
+  e.stopPropagation();
+  let dd=document.getElementById('statusDropdown');
+  if(dd){dd.remove();return;}
+  dd=document.createElement('div');
+  dd.id='statusDropdown';
+  dd.style.cssText='position:absolute;top:100%;left:0;z-index:100;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 0;min-width:130px;box-shadow:0 4px 12px rgba(0,0,0,0.3)';
+  STATUS_OPTIONS.forEach(s=>{
+    const sc=STATUS_COLORS[s]||'var(--draft)';
+    const active=s===currentStatus;
+    const item=document.createElement('div');
+    item.style.cssText=`padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--text);${active?'font-weight:600;':''}`;
+    item.onmouseenter=()=>item.style.background='var(--hover)';
+    item.onmouseleave=()=>item.style.background='transparent';
+    item.innerHTML=`<span style="width:8px;height:8px;border-radius:50%;background:${sc};flex-shrink:0"></span>${s.replace('_',' ')}${active?' ✓':''}`;
+    item.onclick=async(ev)=>{
+      ev.stopPropagation();
+      dd.remove();
+      if(s===currentStatus)return;
+      await fetch(`/api/projects/${currentProject}/sections/${slug}`,{
+        method:'PATCH',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({status:s})
+      });
+      await loadSection(slug);
+      await loadProjectData(currentProject);
+    };
+    dd.appendChild(item);
+  });
+  const badge=e.currentTarget;
+  badge.style.position='relative';
+  badge.appendChild(dd);
+  const close=()=>{dd.remove();document.removeEventListener('click',close);};
+  setTimeout(()=>document.addEventListener('click',close),0);
+}
+
 let currentProject=null,projectData=null,activeSection=null,activeFilter=null;
 let activeTab='sections',mainViewMode='empty',_statsCache=null;
-let chatMessages=[],chatDraft='',chatStreaming=false,chatToolEvents=[],chatError='';
+let chatMessages=[],chatDraft='',chatStreaming=false,chatToolEvents=[],chatError='',chatPhase='';
 let chatApprovals=[];
 let chatApprovalPendingId='';
 let chatSelectionContext=null;
@@ -892,13 +948,14 @@ async function loadSection(slug,opts={}){
   activeSection=slug;mainViewMode='section';
   if(!opts.preserveSelectionContext)clearChatSelectionContext();
   renderSections();
+  document.querySelector('.main').scrollTop=0;
   const res=await fetch(`/api/projects/${currentProject}/sections/${slug}`);
   const data=await res.json();
   const s=data.section;
   const sc=STATUS_COLORS[s.status]||'var(--draft)';
   let html=`<div class="section-title">${s.title}</div>
     <div class="meta-row">
-      <span class="badge" style="background:${sc}">${s.status.replace('_',' ')}</span>
+      <span class="badge status-badge-clickable" style="background:${sc};cursor:pointer;position:relative" onclick="toggleStatusDropdown(event,'${s.slug}','${s.status}')">${s.status.replace('_',' ')} ▾</span>
       <span>${s.section_type}</span>
       <span>${s.word_count} words</span>
       <span>Updated ${new Date(s.updated_at).toLocaleDateString()}</span>
@@ -1419,13 +1476,13 @@ function renderChatMessages(){
   }else{
     html=chatMessages.map(m=>{
       const role=(m.role||'assistant');
-      const safe=escapeHtml(m.content||'').replace(/\n/g,'<br>');
+      const rendered=role==='assistant'?marked.parse(m.content||''):escapeHtml(m.content||'').replace(/\n/g,'<br>');
       const cls=role==='user'?'user':(role==='assistant'?'assistant':'system');
       const metadata=(m.metadata||{});
       const contextHtml=renderSelectionContext(metadata);
       const attachmentsHtml=renderAttachments(metadata);
       const approvalHtml=role==='assistant'?renderApprovals(metadata.approval_requests,m.id,Boolean(metadata.approval_resolved)):'';
-      return `${approvalHtml}<div class="chat-bubble ${cls}">${contextHtml}${attachmentsHtml}<div>${safe}</div></div>`;
+      return `${approvalHtml}<div class="chat-bubble ${cls}">${contextHtml}${attachmentsHtml}<div class="chat-md">${rendered}</div></div>`;
     }).join('');
   }
 
@@ -1450,7 +1507,7 @@ function renderChatMessages(){
   }
 
   if(chatDraft){
-    const safeDraft=chatDraft.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    const safeDraft=marked.parse(chatDraft);
     html+=`<div class="chat-bubble assistant">${safeDraft}</div>`;
   }
 
@@ -1496,9 +1553,13 @@ function handleChatSseEvent(rawEvent){
   let payload={};
   try{payload=data?JSON.parse(data):{}}catch(_){payload={}}
 
-  if(event==='delta'){
+  if(event==='status'){
+    chatPhase=payload.phase||'';
+  }else if(event==='delta'){
+    chatPhase='writing';
     chatDraft+=payload.text||'';
   }else if(event==='tool'){
+    chatPhase='tool: '+(payload.name||'').replace('mcp__prd-forge__','');
     chatToolEvents.push(payload||{});
   }else if(event==='approval'){
     chatApprovals.push(payload||{});
@@ -1531,6 +1592,28 @@ function handleChatSseEvent(rawEvent){
     chatError=payload.error||'Chat failed';
   }
   renderChatMessages();
+  updateChatControls();
+}
+
+function stopChat(){
+  if(chatStreamAbort){chatStreamAbort.abort();chatStreamAbort=null;}
+  chatStreaming=false;chatPhase='';
+  renderChatMessages();
+  updateChatControls();
+}
+
+function updateChatControls(){
+  const stopBtn=document.getElementById('chatStopBtn');
+  const sendBtn=document.getElementById('chatSendBtn');
+  const progress=document.getElementById('chatProgressBar');
+  const progressText=document.getElementById('chatProgressText');
+  if(stopBtn)stopBtn.style.display=chatStreaming?'inline-block':'none';
+  if(sendBtn)sendBtn.style.display=chatStreaming?'none':'inline-block';
+  if(progress)progress.style.display=chatStreaming?'flex':'none';
+  if(progressText){
+    const labels={thinking:'Thinking...',writing:'Writing...',approving:'Waiting for approval...'};
+    progressText.textContent=chatPhase.startsWith('tool:')?'Using '+chatPhase.slice(5).trim()+'...':(labels[chatPhase]||chatPhase||'Processing...');
+  }
 }
 
 async function sendChatMessage(){
@@ -1544,13 +1627,14 @@ async function sendChatMessage(){
   const userMessage=message||'Please review attached files.';
 
   input.value='';
-  chatStreaming=true;
+  chatStreaming=true;chatPhase='thinking';
   chatTurnCompleted=false;
   chatDraft='';
   chatToolEvents=[];
   chatApprovals=[];
   chatApprovalPendingId='';
   chatError='';
+  updateChatControls();
   chatMessages.push({
     role:'user',
     content:userMessage,
@@ -1607,9 +1691,10 @@ async function sendChatMessage(){
     else{chatError=(e&&e.message)?e.message:'Chat request failed';}
   }finally{
     chatStreamAbort=null;
-    chatStreaming=false;
+    chatStreaming=false;chatPhase='';
     chatDraft='';
     renderChatMessages();
+    updateChatControls();
   }
 }
 
@@ -1679,10 +1764,11 @@ async function approveChat(messageId){
     else{chatError=(e&&e.message)?e.message:'Approval request failed';}
   }finally{
     chatStreamAbort=null;
-    chatStreaming=false;
+    chatStreaming=false;chatPhase='';
     chatApprovalPendingId='';
     chatDraft='';
     renderChatMessages();
+    updateChatControls();
   }
 }
 
@@ -1779,9 +1865,11 @@ async function loadProviderStatus(){
     html+=' &middot; ';
     html+=api.configured?`<span style="color:#22c55e">API key: ${api.key_hint}</span>`:'<span style="color:#ef4444">API key: not set</span>';
     el.innerHTML=html;
-    // Show CLI login button only when CLI is installed but not logged in
+    // Show CLI login button when CLI is installed (always — for re-login on token expiry)
     const loginRow=document.getElementById('chatCliLoginRow');
-    if(loginRow)loginRow.style.display=(cli.installed&&!cli.logged_in)?'':'none';
+    const loginBtn=document.getElementById('chatCliLoginBtn');
+    if(loginRow)loginRow.style.display=cli.installed?'':'none';
+    if(loginBtn)loginBtn.textContent=cli.logged_in?'Re-login Claude CLI':'Login Claude CLI';
   }catch(e){}
 }
 

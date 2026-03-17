@@ -25,21 +25,34 @@ try:
     @pytest_asyncio.fixture(autouse=True)
     async def clean_test_data(db_pool):
         """Clean up test-created data after each test, preserving seed data."""
-        await db_pool.execute("DELETE FROM chat_messages")
-        await db_pool.execute("DELETE FROM project_chats")
-        await db_pool.execute("DELETE FROM comment_replies")
-        await db_pool.execute("DELETE FROM section_comments")
-        await db_pool.execute("DELETE FROM project_settings")
-        await db_pool.execute("DELETE FROM token_estimates")
-        await db_pool.execute("DELETE FROM projects WHERE slug != 'snaphabit'")
+        async def _clean():
+            await db_pool.execute("DELETE FROM chat_messages")
+            await db_pool.execute("DELETE FROM project_chats")
+            await db_pool.execute("DELETE FROM comment_replies")
+            await db_pool.execute("DELETE FROM section_comments")
+            await db_pool.execute("DELETE FROM project_settings")
+            await db_pool.execute("DELETE FROM token_estimates")
+            # Clean revisions for non-seed sections (created by MCP tests)
+            await db_pool.execute("""
+                DELETE FROM section_revisions WHERE section_id IN (
+                    SELECT s.id FROM sections s
+                    JOIN projects p ON p.id = s.project_id
+                    WHERE p.slug != 'snaphabit'
+                )
+            """)
+            # Also clean extra revisions on seed sections (beyond initial seed revision)
+            await db_pool.execute("""
+                DELETE FROM section_revisions WHERE id IN (
+                    SELECT sr.id FROM section_revisions sr
+                    JOIN sections s ON s.id = sr.section_id
+                    JOIN projects p ON p.id = s.project_id
+                    WHERE p.slug = 'snaphabit' AND sr.change_description != 'Initial section creation'
+                )
+            """)
+            await db_pool.execute("DELETE FROM projects WHERE slug != 'snaphabit'")
+        await _clean()
         yield
-        await db_pool.execute("DELETE FROM chat_messages")
-        await db_pool.execute("DELETE FROM project_chats")
-        await db_pool.execute("DELETE FROM comment_replies")
-        await db_pool.execute("DELETE FROM section_comments")
-        await db_pool.execute("DELETE FROM project_settings")
-        await db_pool.execute("DELETE FROM token_estimates")
-        await db_pool.execute("DELETE FROM projects WHERE slug != 'snaphabit'")
+        await _clean()
 
     @pytest_asyncio.fixture(scope="session")
     async def mcp_pool(db_pool):

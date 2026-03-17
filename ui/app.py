@@ -485,16 +485,10 @@ async def _claude_cli_turn_stream(
     if extra_args:
         args.extend(shlex.split(extra_args))
 
-    cli_env = None
-    auth_token = _get_cli_auth_token()
-    if auth_token:
-        cli_env = {**os.environ, "ANTHROPIC_AUTH_TOKEN": auth_token}
-
     process = await asyncio.create_subprocess_exec(
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env=cli_env,
     )
 
     assistant_text_parts: list[str] = []
@@ -1300,6 +1294,42 @@ async def get_section(slug: str, section: str):
     }
 
 
+@app.patch("/api/projects/{slug}/sections/{section}")
+async def patch_section(slug: str, section: str, request: Request):
+    """Update section metadata (status, tags, title, summary)."""
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    sec = await pool.fetchrow(
+        "SELECT id FROM sections WHERE project_id = $1 AND slug = $2", proj["id"], section
+    )
+    if not sec:
+        return JSONResponse({"error": f"section '{section}' not found"}, 404)
+
+    body = await request.json()
+    allowed = {"status", "tags", "title", "summary"}
+    updates = {k: v for k, v in body.items() if k in allowed and v is not None}
+    if not updates:
+        return JSONResponse({"error": "nothing to update"}, 400)
+
+    if "status" in updates:
+        valid = {"draft", "in_progress", "review", "approved", "outdated"}
+        if updates["status"] not in valid:
+            return JSONResponse({"error": f"status must be one of: {', '.join(sorted(valid))}"}, 400)
+
+    set_parts = []
+    params = [sec["id"]]
+    for i, (k, v) in enumerate(updates.items(), start=2):
+        set_parts.append(f"{k} = ${i}")
+        params.append(v)
+    set_parts.append("updated_at = now()")
+
+    await pool.execute(
+        f"UPDATE sections SET {', '.join(set_parts)} WHERE id = $1", *params
+    )
+    return {"ok": True, "updated": list(updates.keys())}
+
+
 @app.post("/api/projects/{slug}/sections/{section}/notes")
 async def update_notes(slug: str, section: str, request: Request):
     body = await request.json()
@@ -1538,14 +1568,9 @@ async def chat_provider_status():
     cli_logged_in = False
     if cli_installed:
         try:
-            check_env = None
-            auth_token = _get_cli_auth_token()
-            if auth_token:
-                check_env = {**os.environ, "ANTHROPIC_AUTH_TOKEN": auth_token}
             proc = await asyncio.create_subprocess_exec(
                 cli_cmd, "auth", "status",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-                env=check_env,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
             cli_logged_in = b'"loggedIn": true' in stdout or b'"loggedIn":true' in stdout
@@ -1644,7 +1669,7 @@ async def cli_login_code(request: Request):
             "redirect_uri": CLAUDE_OAUTH_REDIRECT_URI,
             "code_verifier": code_verifier,
         }
-        timeout = httpx.Timeout(15.0, connect=10.0)
+        timeout = httpx.Timeout(30.0, connect=15.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(CLAUDE_OAUTH_TOKEN_URL, json=token_payload)
 
