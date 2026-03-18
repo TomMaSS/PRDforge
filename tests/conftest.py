@@ -26,6 +26,7 @@ try:
     async def clean_test_data(db_pool):
         """Clean up test-created data after each test, preserving seed data."""
         async def _clean():
+            await db_pool.execute("DELETE FROM mcp_activity")
             await db_pool.execute("DELETE FROM chat_messages")
             await db_pool.execute("DELETE FROM project_chats")
             await db_pool.execute("DELETE FROM comment_replies")

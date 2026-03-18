@@ -696,3 +696,72 @@ class TestSuggestDependencies:
             project="snaphabit", section="nonexistent"
         ))
         assert "error" in result
+
+
+class TestMcpActivity:
+    """Tests for MCP activity tracking on write operations."""
+
+    @staticmethod
+    def _detail(row):
+        """Parse JSONB detail — asyncpg returns JSONB as strings."""
+        d = row["detail"]
+        return json.loads(d) if isinstance(d, str) else d
+
+    async def test_create_project_records_activity(self, mcp_pool):
+        import server
+        await server.prd_create_project(name="Act Test", slug="act-test")
+        rows = await mcp_pool.fetch(
+            "SELECT tool_name, detail FROM mcp_activity WHERE tool_name = 'prd_create_project'"
+        )
+        assert len(rows) >= 1
+        assert self._detail(rows[-1])["slug"] == "act-test"
+
+    async def test_create_section_records_activity(self, mcp_pool):
+        import server
+        await server.prd_create_project(name="Act Sec", slug="act-sec")
+        await server.prd_create_section(project="act-sec", slug="s1", title="S1")
+        rows = await mcp_pool.fetch(
+            "SELECT tool_name, detail FROM mcp_activity WHERE tool_name = 'prd_create_section'"
+        )
+        assert len(rows) >= 1
+        assert self._detail(rows[-1])["slug"] == "s1"
+
+    async def test_update_section_records_activity(self, mcp_pool):
+        import server
+        await server.prd_create_project(name="Act Upd", slug="act-upd")
+        await server.prd_create_section(project="act-upd", slug="s1", title="S1", content="old")
+        await server.prd_update_section(project="act-upd", section="s1", content="new")
+        rows = await mcp_pool.fetch(
+            "SELECT detail FROM mcp_activity WHERE tool_name = 'prd_update_section'"
+        )
+        assert len(rows) >= 1
+        assert "content" in self._detail(rows[-1])["fields"]
+
+    async def test_delete_section_records_activity(self, mcp_pool):
+        import server
+        await server.prd_create_project(name="Act Del", slug="act-del")
+        await server.prd_create_section(project="act-del", slug="ds1", title="DS1")
+        await server.prd_delete_section(project="act-del", section="ds1")
+        rows = await mcp_pool.fetch(
+            "SELECT detail FROM mcp_activity WHERE tool_name = 'prd_delete_section'"
+        )
+        assert len(rows) >= 1
+        assert self._detail(rows[-1])["slug"] == "ds1"
+
+    async def test_activity_in_token_stats(self, mcp_pool):
+        """Token stats endpoint returns activity field."""
+        import server
+        import app as ui_app
+        from httpx import ASGITransport, AsyncClient
+
+        ui_app.pool = mcp_pool
+        transport = ASGITransport(app=ui_app.app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await server.prd_create_project(name="Act Stats", slug="act-stats")
+            await server.prd_create_section(project="act-stats", slug="as1", title="AS1")
+            resp = await client.get("/api/projects/act-stats/token-stats")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "activity" in data
+            assert isinstance(data["activity"], list)
+            assert len(data["activity"]) >= 1

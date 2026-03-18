@@ -1543,6 +1543,16 @@ async def get_token_stats(slug: str):
         pid,
     )
 
+    # Recent MCP write activity
+    activity_rows = await pool.fetch("""
+        SELECT tool_name, detail, created_at
+        FROM mcp_activity
+        WHERE project_id = $1
+        ORDER BY created_at DESC
+        LIMIT 50
+    """, pid)
+    activity = [row_dict(r) for r in activity_rows]
+
     return {
         "operations": totals["operations"],
         "total_full_doc_tokens": total_full,
@@ -1557,6 +1567,7 @@ async def get_token_stats(slug: str):
             "dependencies": project_stats["dependency_count"],
             "revisions": project_stats["revision_count"],
         },
+        "activity": activity,
     }
 
 

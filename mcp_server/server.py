@@ -216,6 +216,7 @@ async def prd_create_project(name: str, slug: str, description: str = "") -> str
             name, slug, description,
         )
         logger.info("Created project: %s", slug)
+        await _record_activity(pool, row["id"], "prd_create_project", {"slug": slug})
         return ok({"created": row_to_dict(row)})
     except asyncpg.UniqueViolationError:
         return err(f"project with slug '{slug}' already exists")
@@ -235,6 +236,7 @@ async def prd_delete_project(project: str) -> str:
         if not pid:
             return err(f"project '{project}' not found")
         count = await pool.fetchval("SELECT COUNT(*) FROM sections WHERE project_id = $1", pid)
+        await _record_activity(pool, pid, "prd_delete_project", {"slug": project, "sections": count})
         await pool.execute("DELETE FROM projects WHERE id = $1", pid)
         logger.info("Deleted project: %s (%d sections)", project, count)
         return ok({"deleted": project, "sections_removed": count})
@@ -413,6 +415,7 @@ async def prd_create_section(
             "Initial section creation",
         )
 
+        await _record_activity(pool, pid, "prd_create_section", {"slug": slug, "title": title})
         created = row_to_dict(row)
         created.pop("id", None)
         logger.info("Created section: %s/%s", project, slug)
@@ -531,6 +534,7 @@ async def prd_update_section(
                         """, valid_cids, row["id"])
                         resolved_ids = [str(r["id"]) for r in resolved_rows]
 
+        await _record_activity(pool, pid, "prd_update_section", {"slug": section, "fields": list(fields.keys())})
         result = {"updated": row_to_dict(updated)}
         if revision_created is not None:
             result["revision_created"] = revision_created
@@ -566,6 +570,7 @@ async def prd_delete_section(project: str, section: str) -> str:
         )
         affected = [r["slug"] for r in depended_by]
 
+        await _record_activity(pool, pid, "prd_delete_section", {"slug": section})
         await pool.execute("DELETE FROM sections WHERE id = $1", sec["id"])
         result = {"deleted": section}
         if affected:
@@ -629,6 +634,7 @@ async def prd_move_section(
             f"UPDATE sections SET {', '.join(sets)} WHERE id = ${len(vals)}", *vals
         )
 
+        await _record_activity(pool, pid, "prd_move_section", {"slug": section})
         new_order = sort_order if sort_order is not None else sec["sort_order"]
         return ok({"moved": {"slug": section, "title": sec["title"], "sort_order": new_order}})
     except Exception as e:
@@ -667,6 +673,7 @@ async def prd_duplicate_section(
         """, pid, new_slug, title, src["section_type"], src["sort_order"] + 1,
             src["status"], src["content"], src["summary"], src["tags"], src["notes"])
 
+        await _record_activity(pool, pid, "prd_duplicate_section", {"from": section, "to": new_slug})
         logger.info("Duplicated section: %s/%s → %s", project, section, new_slug)
         return ok({"duplicated": row_to_dict(row), "from": section})
     except asyncpg.UniqueViolationError:
@@ -708,6 +715,8 @@ async def prd_add_dependency(
         """, section, depends_on, dependency_type, description, project)
         if not row:
             return err(f"sections '{section}' and/or '{depends_on}' not found in project '{project}'")
+        pid = await resolve_project_id(pool, project)
+        await _record_activity(pool, pid, "prd_add_dependency", {"from": section, "to": depends_on})
         logger.info("Added dependency: %s/%s → %s", project, section, depends_on)
         return ok({"dependency": {"from": section, "to": depends_on, "type": dependency_type}})
     except Exception as e:
@@ -732,6 +741,8 @@ async def prd_remove_dependency(project: str, section: str, depends_on: str) -> 
               AND depends_on_id = (SELECT id FROM sections WHERE project_id = $1 AND slug = $3)
         """, pid, section, depends_on)
         removed = result.split()[-1] != "0"
+        if removed:
+            await _record_activity(pool, pid, "prd_remove_dependency", {"from": section, "to": depends_on})
         return ok({"removed": removed, "from": section, "to": depends_on})
     except Exception as e:
         logger.error("prd_remove_dependency: %s", e)
@@ -802,6 +813,7 @@ async def prd_add_comment(
             INSERT INTO section_comments (section_id, anchor_text, anchor_prefix, anchor_suffix, body)
             VALUES ($1, $2, $3, $4, $5) RETURNING *
         """, sec["id"], anchor_text, anchor_prefix, anchor_suffix, body)
+        await _record_activity(pool, pid, "prd_add_comment", {"section": section})
         logger.info("Added comment on %s/%s: %.40s", project, section, anchor_text)
         return ok({"created": row_to_dict(row)})
     except Exception as e:
@@ -843,6 +855,8 @@ async def prd_delete_comment(project: str, section: str, comment_id: str) -> str
         if not resolved:
             return err(f"comment '{comment_id}' not found in {project}/{section}")
         cid, _ = resolved
+        pid = await resolve_project_id(pool, project)
+        await _record_activity(pool, pid, "prd_delete_comment", {"section": section})
         await pool.execute("DELETE FROM section_comments WHERE id = $1", cid)
         logger.info("Deleted comment %s on %s/%s", comment_id, project, section)
         return ok({"deleted": comment_id})
@@ -1390,6 +1404,8 @@ async def prd_bulk_status(
             else:
                 updated.append(slug)
 
+        if updated:
+            await _record_activity(pool, pid, "prd_bulk_status", {"status": status, "count": len(updated)})
         return ok({"status": status, "updated": updated, "not_found": not_found})
     except Exception as e:
         logger.error("prd_bulk_status: %s", e)
@@ -1397,6 +1413,17 @@ async def prd_bulk_status(
 
 
 # --- Group 9: Token Stats ---
+
+async def _record_activity(pool, pid, tool_name: str, detail: dict | None = None):
+    """Record a write operation in mcp_activity for audit/dashboard."""
+    try:
+        await pool.execute(
+            "INSERT INTO mcp_activity (project_id, tool_name, detail) VALUES ($1, $2, $3::jsonb)",
+            pid, tool_name, json.dumps(detail or {}),
+        )
+    except Exception as e:
+        logger.warning("activity recording failed: %s", e)
+
 
 async def _record_token_estimate(pool, pid, operation: str, loaded_words: int):
     """Record a token estimate for tracking context savings."""
