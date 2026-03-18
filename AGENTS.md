@@ -45,9 +45,13 @@ Four Docker Compose services:
 | `shared/settings.py` | Settings schema, defaults, validation (shared) | 30 |
 | `mcp_server/server.py` | MCP server with 31 tools + activity tracking | 1560 |
 | `api/app.py` | FastAPI Python API (REST endpoints, chat, auth) | 1620 |
-| `api/static/fonts.css` | Vendored Google Fonts (@font-face declarations) | 200+ |
-| `api/static/fonts/` | Vendored woff2 font files (Inter + JetBrains Mono) | — |
+| `api/auth.py` | Python auth middleware (session validation, role resolution) | 100 |
+| `api/auth_contract.py` | Better Auth table/column contract verification | 50 |
+| `api/errors.py` | Structured error responses (9 error codes) | 70 |
+| `api/ws.py` | WebSocket token minting + verification (HMAC-SHA256) | 80 |
 | `frontend/` | Next.js 15 frontend (React 19, Tailwind v4, shadcn/ui) | — |
+| `frontend/server.ts` | Custom Node server with WS proxy | 45 |
+| `frontend/prisma/schema.prisma` | Better Auth tables (7 models) | 110 |
 | `tests/conftest.py` | Test fixtures (db pool, cleanup, monkeypatch) | 64 |
 | `tests/test_mcp_tools.py` | MCP tool tests (53 tests) | 700+ |
 | `tests/test_ui_api.py` | UI endpoint tests (71 tests) | 940+ |
@@ -79,17 +83,22 @@ Four Docker Compose services:
 
 ## Database Schema Quick Reference
 
-- **projects** — id, name, slug (unique), description, version, created_at, updated_at
-- **sections** — id, project_id, parent_section_id, slug, title, section_type, sort_order, status, content, summary, tags[], notes, word_count (generated), created_at, updated_at. UNIQUE(project_id, slug), UNIQUE(project_id, id)
-- **section_revisions** — id, section_id, revision_number, content, summary, change_description, created_at. UNIQUE(section_id, revision_number)
+- **projects** — id, name, slug (unique), description, version, organization_id, created_by, created_at, updated_at
+- **sections** — id, project_id, parent_section_id, slug, title, section_type, sort_order, status, content, summary, tags[], notes, word_count (generated), updated_by, created_at, updated_at. UNIQUE(project_id, slug), UNIQUE(project_id, id)
+- **section_revisions** — id, section_id, revision_number, content, summary, change_description, created_by, created_at. UNIQUE(section_id, revision_number)
 - **section_dependencies** — id, project_id, section_id, depends_on_id, dependency_type, description. Composite FKs enforce same-project. UNIQUE(section_id, depends_on_id)
-- **section_comments** — id, section_id, anchor_text, anchor_prefix, anchor_suffix, body, resolved, created_at, updated_at. Text anchoring uses prefix/suffix context (~40 chars each) for disambiguation.
-- **comment_replies** — id, comment_id (FK section_comments), author ('user'|'claude' CHECK), body, created_at. Threaded replies on comments.
-- **project_settings** — project_id (PK, FK projects), settings (JSONB, merged with defaults at read time), updated_at. Auto-trigger on update.
-- **token_estimates** — id, project_id (FK projects), operation, full_doc_tokens, loaded_tokens, created_at. Tracks context savings per read operation.
-- **project_chats** — id, project_id (unique FK projects), created_at, updated_at. One chat thread per project.
-- **chat_messages** — id, chat_id (FK project_chats), role ('user'|'assistant'|'system'|'tool' CHECK), content, metadata (JSONB), created_at.
-- **mcp_activity** — id, project_id (FK projects CASCADE), tool_name, detail (JSONB), created_at. Tracks 12 mutating MCP tool invocations.
+- **section_comments** — id, section_id, anchor_text, anchor_prefix, anchor_suffix, body, resolved, created_by, created_at, updated_at
+- **comment_replies** — id, comment_id (FK section_comments), author ('user'|'claude' CHECK), body, created_at
+- **project_settings** — project_id (PK, FK projects), settings (JSONB, merged with defaults at read time), updated_at
+- **token_estimates** — id, project_id (FK projects), operation, full_doc_tokens, loaded_tokens, created_at
+- **project_chats** — id, project_id, chat_type ('main'|section), section_id, created_by, created_at, updated_at. Multi-thread support.
+- **chat_messages** — id, chat_id (FK project_chats), role, content, metadata (JSONB), created_by, created_at
+- **mcp_activity** — id, project_id, tool_name, detail (JSONB), user_id, created_at. 12 mutating tools.
+- **project_members** — id, project_id, user_id, role (owner/admin/editor/commenter/viewer), created_at, updated_at
+- **audit_events** — id, project_id, user_id, action, resource, detail (JSONB), created_at
+- **password_reset_tokens** — id, user_id, token, expires_at, used, created_by, created_at
+- **prdforge_bootstrap** — id, setup_type (unique), completed, created_at
+- Better Auth tables: user, session, account, verification, organization, member, invitation (managed by Prisma)
 - **section_tree** (view) — sections + project_slug, parent_slug, parent_title, revision_count, dep_out_count, dep_in_count
 - **project_changelog** (view) — revisions joined with section and project slugs
 

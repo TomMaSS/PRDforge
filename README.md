@@ -28,8 +28,9 @@ Claude always has enough context to make informed edits without paying for the e
 - **Dependency-aware context** — sections know what they depend on. When Claude reads one, it automatically gets summaries of upstream sections for context.
 - **Full revision history** — every content change creates a revision. Roll back any section to any point. No content is ever lost.
 - **Google Docs-style comments** — leave inline comments anchored to specific text, Claude reads them, implements changes, resolves them. Threaded replies included.
-- **Web UI** — browse specs, leave comments, create new projects, view dependency graph, toggle dark/light theme. Experimental: always-visible project Claude chat with selection context, file attachments, and model selector.
-- **One command to install** — `./install.sh` handles Docker, MCP config, and validation in ~15 seconds.
+- **Multi-user collaboration** — Better Auth (email/password + Google OAuth), org-scoped access control with 5 roles (owner/admin/editor/commenter/viewer), real-time presence via WebSocket, member management.
+- **Next.js frontend** — React 19, Tailwind v4, shadcn/ui. Project dashboard, section viewer, dependency graph, token stats dashboard, chat panel.
+- **One command to install** — `./install.sh` handles Docker, MCP config, and validation.
 
 ## Architecture
 
@@ -42,11 +43,12 @@ graph LR
     A -.->|reads comments| D
 ```
 
-Four Docker services:
-- **PostgreSQL 16** — source of truth (11 tables, 2 views)
+Five Docker services:
+- **PostgreSQL 16** — source of truth (15+ tables, 2 views)
 - **MCP Server** — 31 tools for Claude integration (stdio + HTTP transports)
-- **Python API** — REST backend for projects, sections, chat, comments, token stats
-- **Frontend** — Next.js 15 with React 19, Tailwind v4, shadcn/ui. Proxies `/api/*` to Python API
+- **Python API** — REST backend for projects, sections, chat, comments, members, audit
+- **Frontend** — Next.js 15 with React 19, Tailwind v4, shadcn/ui, Better Auth
+- **Redis 7** — WebSocket token jti uniqueness, pub/sub for real-time events
 
 ## Quick Start
 
