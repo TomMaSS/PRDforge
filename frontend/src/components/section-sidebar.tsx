@@ -2,10 +2,10 @@
 
 import { StatusDot } from "@/components/status-dot";
 import { cn } from "@/lib/utils";
-import type { Section } from "@/lib/types";
+import type { SectionListItem } from "@/lib/types";
 
 interface SectionSidebarProps {
-  sections: Section[];
+  sections: SectionListItem[];
   activeSlug?: string;
   onSelect: (slug: string) => void;
 }

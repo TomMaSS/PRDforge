@@ -21,6 +21,7 @@ services:
       - ./db/09_audit.sql:/docker-entrypoint-initdb.d/09_audit.sql:ro
       - ./db/10_password_reset.sql:/docker-entrypoint-initdb.d/10_password_reset.sql:ro
       - ./db/11_chat_multiuser.sql:/docker-entrypoint-initdb.d/11_chat_multiuser.sql:ro
+      - ./db/12_better_auth.sql:/docker-entrypoint-initdb.d/12_better_auth.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prdforge}"]
       interval: 3s
@@ -95,9 +96,14 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: ""
+      DATABASE_URL: postgresql://${POSTGRES_USER:-prdforge}:${POSTGRES_PASSWORD:-prdforge}@postgres:5432/${POSTGRES_DB:-prdforge}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-better-auth-secret-change-in-production}
+      PRISMA_QUERY_ENGINE_LIBRARY: /app/node_modules/.prisma/client/libquery_engine-linux-musl-arm64-openssl-3.0.x.so.node
     depends_on:
-      - python-api
+      postgres:
+        condition: service_healthy
+      python-api:
+        condition: service_started
     restart: unless-stopped
 
 volumes:

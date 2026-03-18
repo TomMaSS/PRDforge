@@ -1,68 +1,133 @@
 @import "tailwindcss";
 
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
-    --radius: 0.5rem;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-  }
-
-  .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-  }
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-card: var(--card-bg);
+  --color-card-foreground: var(--fg);
+  --color-popover: var(--card-bg);
+  --color-popover-foreground: var(--fg);
+  --color-primary: var(--accent);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--surface);
+  --color-secondary-foreground: var(--fg);
+  --color-muted: var(--surface);
+  --color-muted-foreground: var(--fg-muted);
+  --color-accent: var(--surface);
+  --color-accent-foreground: var(--fg);
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--border-color);
+  --color-input: var(--border-color);
+  --color-ring: var(--accent);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
 }
 
-@layer base {
-  * {
-    @apply border-border;
-  }
+/* Light theme */
+:root {
+  --bg: #f5f5f7;
+  --fg: #1a1a2e;
+  --fg-muted: #6b6b80;
+  --card-bg: #ffffff;
+  --surface: #e8e8ec;
+  --border-color: #d1d1d9;
+  --accent: #6366f1;
+  --accent-hover: #5558e6;
+  --notes-bg: #fef9e7;
+  --notes-border: #e6d88a;
+}
 
-  body {
-    @apply bg-background text-foreground;
-  }
+/* Dark theme */
+.dark {
+  --bg: #2b2d35;
+  --fg: #e2e4ea;
+  --fg-muted: #9496ad;
+  --card-bg: #33353f;
+  --surface: #3d3f4a;
+  --border-color: #44465a;
+  --accent: #6366f1;
+  --accent-hover: #5558e6;
+  --notes-bg: #3a3520;
+  --notes-border: #665e3a;
+}
+
+* {
+  border-color: var(--border-color);
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+}
+
+/* Markdown styles */
+.markdown-body {
+  color: var(--fg);
+  line-height: 1.7;
+}
+.markdown-body h1 { font-size: 1.5rem; font-weight: 700; margin: 1.5rem 0 0.75rem; }
+.markdown-body h2 { font-size: 1.25rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+.markdown-body h3 { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+.markdown-body p { margin: 0.5rem 0; }
+.markdown-body ul { list-style: disc; padding-left: 1.5rem; margin: 0.5rem 0; }
+.markdown-body ol { list-style: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
+.markdown-body li { margin: 0.25rem 0; }
+.markdown-body strong { font-weight: 600; }
+.markdown-body em { font-style: italic; }
+.markdown-body a { color: var(--accent); text-decoration: underline; }
+.markdown-body blockquote {
+  border-left: 3px solid var(--border-color);
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: var(--fg-muted);
+  font-style: italic;
+}
+.markdown-body code {
+  background: var(--surface);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.875em;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.markdown-body pre {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.875rem;
+}
+.markdown-body th {
+  border: 1px solid var(--border-color);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  background: var(--surface);
+}
+.markdown-body td {
+  border: 1px solid var(--border-color);
+  padding: 0.5rem 0.75rem;
+}
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 1.5rem 0;
+}
+.markdown-body img {
+  max-width: 100%;
+  border-radius: 8px;
 }

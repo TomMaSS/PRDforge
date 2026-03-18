@@ -17,7 +17,7 @@ from typing import Any
 
 import asyncpg
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -72,11 +72,26 @@ def _valid_project_slug(slug: str) -> bool:
     return bool(slug and len(slug) <= 100 and PROJECT_SLUG_RE.match(slug))
 
 
+redis_client = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global pool
+    global pool, redis_client
     pool = await asyncpg.create_pool(os.environ["DATABASE_URL"])
+    redis_url = os.environ.get("REDIS_URL", "")
+    if redis_url:
+        try:
+            import redis.asyncio as aioredis
+            redis_client = aioredis.from_url(redis_url, decode_responses=True)
+            await redis_client.ping()
+            logger.info("Redis connected: %s", redis_url)
+        except Exception as e:
+            logger.warning("Redis not available (real-time features disabled): %s", e)
+            redis_client = None
     yield
+    if redis_client:
+        await redis_client.aclose()
     if pool:
         await pool.close()
 
@@ -222,6 +237,237 @@ CHAT_ALLOWED_MCP_TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
         "arg_names": ["section", "comment_id", "body"],
+    },
+    "prd_add_comment": {
+        "description": "Add inline comment anchored to text in a section.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "anchor_text": {"type": "string"},
+                "body": {"type": "string"},
+                "anchor_prefix": {"type": "string"},
+                "anchor_suffix": {"type": "string"},
+            },
+            "required": ["section", "anchor_text", "body"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "anchor_text", "body", "anchor_prefix", "anchor_suffix"],
+    },
+    "prd_delete_comment": {
+        "description": "Delete an inline comment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "comment_id": {"type": "string"},
+            },
+            "required": ["section", "comment_id"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "comment_id"],
+    },
+    "prd_create_section": {
+        "description": "Create a new section in the project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "title": {"type": "string"},
+                "section_type": {"type": "string"},
+                "content": {"type": "string"},
+                "summary": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "notes": {"type": "string"},
+                "sort_order": {"type": "integer"},
+            },
+            "required": ["slug", "title"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["slug", "title", "section_type", "content", "summary", "tags", "notes", "sort_order"],
+    },
+    "prd_delete_section": {
+        "description": "Delete a section (warns about dependent sections).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+            },
+            "required": ["section"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section"],
+    },
+    "prd_add_dependency": {
+        "description": "Add dependency between two sections (idempotent).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "depends_on": {"type": "string"},
+                "dependency_type": {"type": "string"},
+                "description": {"type": "string"},
+            },
+            "required": ["section", "depends_on"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "depends_on", "dependency_type", "description"],
+    },
+    "prd_remove_dependency": {
+        "description": "Remove dependency between two sections.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "depends_on": {"type": "string"},
+            },
+            "required": ["section", "depends_on"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "depends_on"],
+    },
+    "prd_suggest_dependencies": {
+        "description": "Suggest dependencies for a section using content similarity.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+            },
+            "required": ["section"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section"],
+    },
+    "prd_get_changelog": {
+        "description": "Get recent revision history across all sections.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer"},
+            },
+            "additionalProperties": False,
+        },
+        "arg_names": ["limit"],
+    },
+    "prd_get_revisions": {
+        "description": "List revisions for a section.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+            },
+            "required": ["section"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section"],
+    },
+    "prd_rollback_section": {
+        "description": "Rollback section to a previous revision (saves backup first).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "revision": {"type": "integer"},
+            },
+            "required": ["section", "revision"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "revision"],
+    },
+    "prd_move_section": {
+        "description": "Move section (change sort order or parent).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "sort_order": {"type": "integer"},
+                "parent_section": {"type": "string"},
+            },
+            "required": ["section"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "sort_order", "parent_section"],
+    },
+    "prd_duplicate_section": {
+        "description": "Duplicate a section with a new slug.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "new_slug": {"type": "string"},
+                "new_title": {"type": "string"},
+            },
+            "required": ["section", "new_slug"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "new_slug", "new_title"],
+    },
+    "prd_bulk_status": {
+        "description": "Bulk update status for multiple sections.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sections": {"type": "array", "items": {"type": "string"}},
+                "status": {"type": "string"},
+            },
+            "required": ["sections", "status"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["sections", "status"],
+    },
+    "prd_export_markdown": {
+        "description": "Export entire project as markdown (large output).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "arg_names": [],
+    },
+    "prd_import_markdown": {
+        "description": "Import markdown document into the project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string"},
+                "replace_existing": {"type": "boolean"},
+                "heading_level": {"type": "integer"},
+                "manual_delimiter": {"type": "string"},
+            },
+            "required": ["markdown"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["markdown", "replace_existing", "heading_level", "manual_delimiter"],
+    },
+    "prd_token_stats": {
+        "description": "Get token savings statistics for the project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "arg_names": [],
+    },
+    "prd_get_settings": {
+        "description": "Get project settings.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "arg_names": [],
+    },
+    "prd_update_settings": {
+        "description": "Update project settings.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "settings": {"type": "object"},
+            },
+            "required": ["settings"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["settings"],
     },
 }
 
@@ -1308,6 +1554,27 @@ async def patch_section(slug: str, section: str, request: Request):
         return JSONResponse({"error": f"section '{section}' not found"}, 404)
 
     body = await request.json()
+
+    # Optimistic locking: if client sends expected_revision, verify it matches
+    expected_rev = body.get("expected_revision")
+    if expected_rev is not None:
+        current_rev = await pool.fetchval(
+            "SELECT COALESCE(MAX(revision_number), 0) FROM section_revisions WHERE section_id = $1",
+            sec["id"],
+        )
+        if current_rev != expected_rev:
+            return JSONResponse({
+                "error": {
+                    "code": "CONFLICT",
+                    "message": f"Section was updated (revision {expected_rev} → {current_rev}). Reload and retry.",
+                    "status": 409,
+                    "details": {
+                        "current_revision": current_rev,
+                        "expected_revision": expected_rev,
+                    },
+                }
+            }, 409)
+
     allowed = {"status", "tags", "title", "summary"}
     updates = {k: v for k, v in body.items() if k in allowed and v is not None}
     if not updates:
@@ -1328,6 +1595,7 @@ async def patch_section(slug: str, section: str, request: Request):
     await pool.execute(
         f"UPDATE sections SET {', '.join(set_parts)} WHERE id = $1", *params
     )
+    await broadcast_project_event(slug, "section_updated", {"section": section, "fields": list(updates.keys())})
     return {"ok": True, "updated": list(updates.keys())}
 
 
@@ -1363,6 +1631,7 @@ async def create_comment(slug: str, section: str, request: Request):
         VALUES ($1, $2, $3, $4, $5) RETURNING *
     """, sec_id, body["anchor_text"], body.get("anchor_prefix", ""),
         body.get("anchor_suffix", ""), body["body"])
+    await broadcast_project_event(slug, "comment_added", {"section": section, "comment_id": str(row["id"])})
     return row_dict(row)
 
 
@@ -2140,6 +2409,114 @@ async def create_ws_token(request: Request):
 
     token = mint_ws_token(user_id, project_slug)
     return {"token": token}
+
+
+# --- WebSocket handler ---
+
+# Connected clients: {project_slug: {user_id: WebSocket}}
+_ws_connections: dict[str, dict[str, WebSocket]] = {}
+
+
+@app.websocket("/ws/projects/{slug}")
+async def websocket_project(websocket: WebSocket, slug: str):
+    """WebSocket endpoint for real-time project updates and presence."""
+    from ws import verify_ws_token
+
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001, reason="Missing token")
+        return
+
+    payload = verify_ws_token(token)
+    if not payload:
+        await websocket.close(code=4001, reason="Invalid or expired token")
+        return
+
+    if payload.get("project") != slug:
+        await websocket.close(code=4003, reason="Token project mismatch")
+        return
+
+    user_id = payload["sub"]
+    jti = payload.get("jti", "")
+
+    # jti uniqueness: Redis SET NX EX — reject replayed tokens
+    if redis_client and jti:
+        was_set = await redis_client.set(f"ws:jti:{jti}", "1", nx=True, ex=120)
+        if not was_set:
+            await websocket.close(code=4002, reason="Token already used")
+            return
+
+    await websocket.accept()
+
+    # Register connection
+    if slug not in _ws_connections:
+        _ws_connections[slug] = {}
+    _ws_connections[slug][user_id] = websocket
+
+    # Broadcast presence update
+    await _broadcast_presence(slug)
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Handle incoming messages (e.g., cursor position, typing indicator)
+            try:
+                msg = json.loads(data)
+                if msg.get("type") == "presence_update":
+                    # Update user's active section and re-broadcast
+                    await _broadcast_presence(slug)
+            except json.JSONDecodeError:
+                pass
+    except WebSocketDisconnect:
+        pass
+    finally:
+        # Unregister
+        if slug in _ws_connections:
+            _ws_connections[slug].pop(user_id, None)
+            if not _ws_connections[slug]:
+                del _ws_connections[slug]
+            else:
+                await _broadcast_presence(slug)
+
+
+async def _broadcast_presence(slug: str):
+    """Send presence list to all connected clients for a project."""
+    conns = _ws_connections.get(slug, {})
+    users = [{"id": uid, "name": uid} for uid in conns]
+    message = json.dumps({"type": "presence_update", "data": {"users": users}})
+    disconnected = []
+    for uid, ws in conns.items():
+        try:
+            await ws.send_text(message)
+        except Exception:
+            disconnected.append(uid)
+    for uid in disconnected:
+        conns.pop(uid, None)
+
+
+async def broadcast_project_event(slug: str, event_type: str, data: dict):
+    """Broadcast a real-time event to all connected project clients.
+
+    Sends via local WS connections AND Redis pub/sub for multi-process.
+    """
+    message = json.dumps({"type": event_type, "data": data})
+    # Local broadcast
+    conns = _ws_connections.get(slug, {})
+    if conns:
+        disconnected = []
+        for uid, ws in conns.items():
+            try:
+                await ws.send_text(message)
+            except Exception:
+                disconnected.append(uid)
+        for uid in disconnected:
+            conns.pop(uid, None)
+    # Redis pub/sub for multi-process
+    if redis_client:
+        try:
+            await redis_client.publish(f"project:{slug}", message)
+        except Exception as e:
+            logger.warning("Redis publish failed: %s", e)
 
 
 @app.get("/health")

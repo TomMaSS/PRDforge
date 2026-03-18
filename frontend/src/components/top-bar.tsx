@@ -12,14 +12,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { signOut } from "@/lib/auth-client";
 
 interface TopBarProps {
   projectName?: string;
+  projectSlug?: string;
   sectionTitle?: string;
 }
 
-export function TopBar({ projectName, sectionTitle }: TopBarProps) {
-  const [isDark, setIsDark] = useState(false);
+export function TopBar({ projectName, projectSlug, sectionTitle }: TopBarProps) {
+  const router = useRouter();
+  const [isDark, setIsDark] = useState(true);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -29,10 +33,11 @@ export function TopBar({ projectName, sectionTitle }: TopBarProps) {
     const next = !isDark;
     setIsDark(next);
     document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("prdforge-theme", next ? "dark" : "light");
   }, [isDark]);
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b bg-background px-6">
+    <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b bg-card px-6">
       <Link href="/projects" className="text-lg font-bold tracking-tight">
         PRDforge
       </Link>
@@ -75,9 +80,20 @@ export function TopBar({ projectName, sectionTitle }: TopBarProps) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>Settings</DropdownMenuItem>
+            {projectSlug && (
+              <DropdownMenuItem onClick={() => router.push(`/projects/${projectSlug}/settings`)}>
+                Settings
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Export All</DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={async () => {
+                await signOut();
+                router.push("/signin");
+              }}
+            >
+              Sign Out
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

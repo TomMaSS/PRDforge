@@ -10,11 +10,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/status-dot";
 import { cn } from "@/lib/utils";
-import type { Project, Section } from "@/lib/types";
+import type { Project, SectionListItem } from "@/lib/types";
 
 interface SidebarProps {
   projects: Project[];
-  sections: Section[];
+  sections: SectionListItem[];
   activeProject?: string;
   activeSection?: string;
   onProjectSelect: (slug: string) => void;

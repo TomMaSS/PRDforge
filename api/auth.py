@@ -123,3 +123,30 @@ ROLE_HIERARCHY = {
 def has_min_role(user_role: str, min_role: str) -> bool:
     """Check if user_role meets the minimum required role."""
     return ROLE_HIERARCHY.get(user_role, 0) >= ROLE_HIERARCHY.get(min_role, 0)
+
+
+async def require_project_access(request: Request, pool, slug: str, min_role: str = "viewer"):
+    """Check user has required role for project. Returns (user, role) or JSONResponse error.
+
+    During migration: if no auth tables exist yet, allow all access (single-user mode).
+    """
+    from errors import unauthorized, permission_denied, not_found
+
+    # Check if auth tables exist (migration may not have run yet)
+    auth_exists = await pool.fetchval("SELECT to_regclass('session')")
+    if not auth_exists:
+        # Single-user mode: no auth enforcement
+        return {"user_id": None, "name": "local", "email": ""}, "owner"
+
+    user = await get_session_user(request, pool)
+    if not user:
+        return unauthorized(), None
+
+    role = await get_user_project_role(pool, user["user_id"], slug)
+    if not role:
+        return not_found("project", slug), None
+
+    if not has_min_role(role, min_role):
+        return permission_denied(f"Requires {min_role} role, you have {role}"), None
+
+    return user, role

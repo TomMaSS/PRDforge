@@ -187,9 +187,7 @@ export default function ProjectsPage() {
                           : "sections"}
                       </span>
                       <span>
-                        {new Date(
-                          project.updated_at
-                        ).toLocaleDateString()}
+                        {project.total_words} words
                       </span>
                     </div>
                   </CardContent>

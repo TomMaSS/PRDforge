@@ -20,10 +20,14 @@ export default function SignInPage() {
     setLoading(true);
 
     try {
-      await signIn.email({ email, password });
-      router.push("/projects");
+      const result = await signIn.email({ email, password });
+      if (result.error) {
+        setError(result.error.message || "Invalid email or password");
+      } else {
+        router.push("/projects");
+      }
     } catch {
-      setError("Invalid email or password");
+      setError("Unable to connect to server");
     } finally {
       setLoading(false);
     }

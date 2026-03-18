@@ -4,7 +4,9 @@ RUN corepack enable
 FROM base AS deps
 WORKDIR /app
 COPY frontend/package.json frontend/yarn.lock frontend/.yarnrc.yml ./
+COPY frontend/prisma ./prisma
 RUN yarn install --immutable
+RUN npx prisma generate
 
 FROM base AS builder
 WORKDIR /app
