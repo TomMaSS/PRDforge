@@ -2027,6 +2027,84 @@ async def export_project(slug: str):
     return PlainTextResponse("\n".join(lines), media_type="text/plain")
 
 
+# --- Member management ---
+
+@app.get("/api/projects/{slug}/members")
+async def list_project_members(slug: str):
+    """List all members of a project."""
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    rows = await pool.fetch("""
+        SELECT pm.id, pm.user_id, pm.role, pm.created_at, pm.updated_at
+        FROM project_members pm
+        WHERE pm.project_id = $1
+        ORDER BY pm.created_at
+    """, proj["id"])
+    return [row_dict(r) for r in rows]
+
+
+@app.post("/api/projects/{slug}/members")
+async def add_project_member(slug: str, request: Request):
+    """Add a member to a project."""
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, 400)
+    user_id = body.get("user_id")
+    role = body.get("role", "viewer")
+    if not user_id:
+        return JSONResponse({"error": "user_id is required"}, 400)
+    valid_roles = {"owner", "admin", "editor", "commenter", "viewer"}
+    if role not in valid_roles:
+        return JSONResponse({"error": f"invalid role, must be one of {sorted(valid_roles)}"}, 400)
+    try:
+        row = await pool.fetchrow("""
+            INSERT INTO project_members (project_id, user_id, role)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role
+            RETURNING id, user_id, role, created_at
+        """, proj["id"], _uuid.UUID(user_id), role)
+        return row_dict(row)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, 500)
+
+
+@app.delete("/api/projects/{slug}/members/{user_id}")
+async def remove_project_member(slug: str, user_id: str):
+    """Remove a member from a project."""
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    result = await pool.execute(
+        "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2",
+        proj["id"], _uuid.UUID(user_id),
+    )
+    removed = result.split()[-1] != "0"
+    return {"removed": removed}
+
+
+# --- Audit events ---
+
+@app.get("/api/projects/{slug}/audit")
+async def list_audit_events(slug: str, limit: int = 50):
+    """List recent audit events for a project."""
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    rows = await pool.fetch("""
+        SELECT id, user_id, action, resource, detail, created_at
+        FROM audit_events
+        WHERE project_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+    """, proj["id"], limit)
+    return [row_dict(r) for r in rows]
+
+
 @app.get("/health")
 async def health():
     try:

@@ -27,7 +27,7 @@ try:
         """Clean up test-created data after each test, preserving seed data."""
         async def _clean():
             # FK-safe order. Uses to_regclass() — safe when tables don't exist yet.
-            for t in ['prdforge_bootstrap', 'project_members', 'mcp_activity']:
+            for t in ['password_reset_tokens', 'audit_events', 'prdforge_bootstrap', 'project_members', 'mcp_activity']:
                 if await db_pool.fetchval(f"SELECT to_regclass('{t}')") is not None:
                     await db_pool.execute(f"DELETE FROM {t}")
             await db_pool.execute("DELETE FROM chat_messages")

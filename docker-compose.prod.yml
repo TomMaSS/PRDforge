@@ -20,6 +20,8 @@ services:
       - ./db/06_chat.sql:/docker-entrypoint-initdb.d/06_chat.sql:ro
       - ./db/07_multi_user.sql:/docker-entrypoint-initdb.d/07_multi_user.sql:ro
       - ./db/08_mcp_activity.sql:/docker-entrypoint-initdb.d/08_mcp_activity.sql:ro
+      - ./db/09_audit.sql:/docker-entrypoint-initdb.d/09_audit.sql:ro
+      - ./db/10_password_reset.sql:/docker-entrypoint-initdb.d/10_password_reset.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prdforge}"]
       interval: 3s
