@@ -2105,6 +2105,32 @@ async def list_audit_events(slug: str, limit: int = 50):
     return [row_dict(r) for r in rows]
 
 
+# --- WebSocket token ---
+
+@app.post("/api/ws-token")
+async def create_ws_token(request: Request):
+    """Mint a short-lived HMAC token for WebSocket authentication."""
+    from ws import mint_ws_token
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, 400)
+
+    user_id = body.get("user_id")
+    project_slug = body.get("project_slug")
+    if not user_id or not project_slug:
+        return JSONResponse({"error": "user_id and project_slug required"}, 400)
+
+    # Verify project exists
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", project_slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{project_slug}' not found"}, 404)
+
+    token = mint_ws_token(user_id, project_slug)
+    return {"token": token}
+
+
 @app.get("/health")
 async def health():
     try:

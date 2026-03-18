@@ -69,6 +69,15 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+    restart: unless-stopped
+
   frontend:
     image: ghcr.io/tommass/prdforge-frontend:${PRDFORGE_VERSION:-latest}
     ports:
