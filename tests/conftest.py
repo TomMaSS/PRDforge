@@ -6,7 +6,7 @@ import sys
 # Add project root + subpackages to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "mcp_server"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ui"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
 
 try:
     import asyncpg

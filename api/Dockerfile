@@ -5,11 +5,11 @@ RUN apt-get update \
 	&& npm install -g @anthropic-ai/claude-code \
 	&& apt-get clean \
 	&& rm -rf /var/lib/apt/lists/*
-COPY ui/requirements.txt /app/ui/
-RUN pip install --no-cache-dir -r /app/ui/requirements.txt
+COPY api/requirements.txt /app/api/
+RUN pip install --no-cache-dir -r /app/api/requirements.txt
 COPY shared/ /app/shared/
 COPY mcp_server/ /app/mcp_server/
-COPY ui/app.py /app/ui/
-COPY ui/static/ /app/ui/static/
-WORKDIR /app/ui
+COPY api/app.py /app/api/
+COPY api/static/ /app/api/static/
+WORKDIR /app/api
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8088"]

@@ -37,14 +37,16 @@ Claude always has enough context to make informed edits without paying for the e
 graph LR
     A[Claude.ai / Claude Code / Claude Desktop] <-->|MCP Protocol| B[MCP Server<br/>FastMCP/Python<br/>:8080]
     B <-->|asyncpg| C[(PostgreSQL 16<br/>sections, revisions<br/>dependencies, comments)]
-    D[Web UI<br/>FastAPI<br/>:8088] <-->|read + comments + chat memory| C
+    D[Python API<br/>FastAPI<br/>:8088] <-->|read + write + chat| C
+    E[Frontend<br/>Next.js<br/>:3000] <-->|REST proxy| D
     A -.->|reads comments| D
 ```
 
-Three Docker services, all localhost-only:
-- **PostgreSQL 16** — source of truth (10 tables, 2 views)
+Four Docker services:
+- **PostgreSQL 16** — source of truth (11 tables, 2 views)
 - **MCP Server** — 31 tools for Claude integration (stdio + HTTP transports)
-- **Web UI** — browser interface with project switching/creation, inline comments, dependency graph, dark/light theme. Experimental chat with model selector and MCP tool access
+- **Python API** — REST backend for projects, sections, chat, comments, token stats
+- **Frontend** — Next.js 15 with React 19, Tailwind v4, shadcn/ui. Proxies `/api/*` to Python API
 
 ## Quick Start
 

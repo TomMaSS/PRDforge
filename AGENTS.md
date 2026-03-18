@@ -6,11 +6,12 @@ PRD Forge is a self-hosted sectional PRD management system. It stores documents 
 
 ## Architecture
 
-Three Docker Compose services:
-- **PostgreSQL 16** (`postgres:16-alpine`) — 10 tables, 2 views, schema in `db/01_init.sql`, seed in `db/02_seed.sql` (SnapHabit sample, 12 sections), comments in `db/03_comments.sql`, replies+settings in `db/04_replies_and_settings.sql`, token stats in `db/05_token_stats.sql`, chat memory in `db/06_chat.sql`
-- **MCP Server** (`mcp_server/server.py`, ~850 lines) — FastMCP with 31 tools, asyncpg, stdio + HTTP transports
-- **Web UI** (`ui/app.py`, ~1637 lines) — FastAPI, dark theme with vertical nav rail, inline comments with replies, project settings, project creation/switching, force-directed dependency graph, and always-visible streaming Claude chat with selection-context injection
-- **Shared** (`shared/settings.py`) — Settings schema + validation, imported by both MCP server and UI
+Four Docker Compose services:
+- **PostgreSQL 16** (`postgres:16-alpine`) — 11 tables, 2 views, schema in `db/01_init.sql`, seed in `db/02_seed.sql` (SnapHabit sample, 12 sections), comments in `db/03_comments.sql`, replies+settings in `db/04_replies_and_settings.sql`, token stats in `db/05_token_stats.sql`, chat memory in `db/06_chat.sql`, MCP activity in `db/08_mcp_activity.sql`
+- **MCP Server** (`mcp_server/server.py`, ~1560 lines) — FastMCP with 31 tools, asyncpg, stdio + HTTP transports
+- **Python API** (`api/app.py`, ~1620 lines) — FastAPI backend, REST endpoints for projects/sections/chat/comments/token-stats
+- **Frontend** (`frontend/`, Next.js 15) — React 19, Tailwind v4, shadcn/ui. Proxies `/api/*` to Python API
+- **Shared** (`shared/settings.py`) — Settings schema + validation, imported by both MCP server and Python API
 
 ## Key Design Principles
 
@@ -30,27 +31,29 @@ Three Docker Compose services:
 
 | File | Purpose | ~Lines |
 |------|---------|--------|
-| `docker-compose.yml` | 3-service stack definition | 68 |
+| `docker-compose.yml` | 4-service stack definition | 75 |
 | `db/01_init.sql` | Schema DDL (tables, indexes, triggers, views) | 154 |
 | `db/02_seed.sql` | SnapHabit sample seed (12 sections, 12 deps) | 570 |
 | `db/05_token_stats.sql` | Token usage estimates table | 12 |
 | `db/06_chat.sql` | Chat tables migration (project chats + messages) | 41 |
+| `db/08_mcp_activity.sql` | MCP write activity tracking | 12 |
 | `docs/tool-reference.md` | MCP tool table and usage examples | 100 |
 | `docs/data-model.md` | ER diagram, dependency types, statuses, tags | 141 |
 | `docs/scaling.md` | Multi-user and scaling guidance | 90 |
 | `db/03_comments.sql` | Inline comments table (section_comments) | 20 |
 | `db/04_replies_and_settings.sql` | Comment replies + project settings tables | 40 |
 | `shared/settings.py` | Settings schema, defaults, validation (shared) | 30 |
-| `mcp_server/server.py` | MCP server with 31 tools | 1290 |
-| `ui/app.py` | FastAPI web UI with nav rail, replies, settings, project creation/switching, always-visible streaming chat (selection context), light/dark theme | 1637 |
-| `ui/static/fonts.css` | Vendored Google Fonts (@font-face declarations) | 200+ |
-| `ui/static/fonts/` | Vendored woff2 font files (Inter + JetBrains Mono) | — |
+| `mcp_server/server.py` | MCP server with 31 tools + activity tracking | 1560 |
+| `api/app.py` | FastAPI Python API (REST endpoints, chat, auth) | 1620 |
+| `api/static/fonts.css` | Vendored Google Fonts (@font-face declarations) | 200+ |
+| `api/static/fonts/` | Vendored woff2 font files (Inter + JetBrains Mono) | — |
+| `frontend/` | Next.js 15 frontend (React 19, Tailwind v4, shadcn/ui) | — |
 | `tests/conftest.py` | Test fixtures (db pool, cleanup, monkeypatch) | 64 |
 | `tests/test_mcp_tools.py` | MCP tool tests (53 tests) | 700+ |
 | `tests/test_ui_api.py` | UI endpoint tests (71 tests) | 940+ |
 | `tests/test_smoke.py` | CI smoke tests (MCP, DB, UI, seed data) | 85 |
 | `.github/workflows/test.yml` | CI: runs 124 tests on every PR to main | 50 |
-| `.github/workflows/build-and-push.yml` | CD: builds Docker images on tag push | 63 |
+| `.github/workflows/build-and-push.yml` | CD: builds 3 Docker images on tag push | 65 |
 
 ## MCP Tool Groups
 
@@ -86,6 +89,7 @@ Three Docker Compose services:
 - **token_estimates** — id, project_id (FK projects), operation, full_doc_tokens, loaded_tokens, created_at. Tracks context savings per read operation.
 - **project_chats** — id, project_id (unique FK projects), created_at, updated_at. One chat thread per project.
 - **chat_messages** — id, chat_id (FK project_chats), role ('user'|'assistant'|'system'|'tool' CHECK), content, metadata (JSONB), created_at.
+- **mcp_activity** — id, project_id (FK projects CASCADE), tool_name, detail (JSONB), created_at. Tracks 12 mutating MCP tool invocations.
 - **section_tree** (view) — sections + project_slug, parent_slug, parent_title, revision_count, dep_out_count, dep_in_count
 - **project_changelog** (view) — revisions joined with section and project slugs
 
@@ -112,8 +116,8 @@ Three Docker Compose services:
 3. Update `db/02_seed.sql` if the seed data format changed
 4. Update AGENTS.md schema reference
 
-**Adding a UI endpoint:**
-1. Add the route to `ui/app.py`
+**Adding an API endpoint:**
+1. Add the route to `api/app.py`
 2. Query the pool directly
 3. Add a test in `test_ui_api.py`
 

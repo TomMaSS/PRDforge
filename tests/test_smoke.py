@@ -7,7 +7,8 @@ import httpx
 import pytest
 
 MCP_URL = "http://localhost:8080"
-UI_URL = "http://localhost:8088"
+API_URL = "http://localhost:8088"
+FRONTEND_URL = "http://localhost:3000"
 
 
 @pytest.fixture(scope="session")
@@ -33,54 +34,44 @@ class TestMCPLiveness:
 
 
 class TestDBReadiness:
-    def test_ui_health_endpoint(self, http_client):
-        """UI /health endpoint confirms DB connection."""
-        resp = http_client.get(f"{UI_URL}/health")
+    def test_api_health_endpoint(self, http_client):
+        """Python API /health endpoint confirms DB connection."""
+        resp = http_client.get(f"{API_URL}/health")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
         assert data["db"] == "connected"
 
 
-class TestUIEndpoints:
-    def test_index_returns_html(self, http_client):
-        resp = http_client.get(f"{UI_URL}/")
-        assert resp.status_code == 200
-        assert "text/html" in resp.headers["content-type"]
-        assert "PRD Forge" in resp.text
-
+class TestAPIEndpoints:
     def test_api_projects(self, http_client):
-        resp = http_client.get(f"{UI_URL}/api/projects")
+        resp = http_client.get(f"{API_URL}/api/projects")
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
         assert len(data) >= 1
 
-    def test_static_js_served(self, http_client):
-        resp = http_client.get(f"{UI_URL}/static/marked.min.js")
-        assert resp.status_code == 200
-
 
 class TestSeedData:
     def test_snaphabit_project_exists(self, http_client):
-        resp = http_client.get(f"{UI_URL}/api/projects/snaphabit")
+        resp = http_client.get(f"{API_URL}/api/projects/snaphabit")
         assert resp.status_code == 200
         data = resp.json()
         assert data["project"]["slug"] == "snaphabit"
         assert data["stats"]["sections"] >= 10
 
     def test_seed_sections_have_content(self, http_client):
-        resp = http_client.get(f"{UI_URL}/api/projects/snaphabit/sections/data-model")
+        resp = http_client.get(f"{API_URL}/api/projects/snaphabit/sections/data-model")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["section"]["content"]) > 100
 
     def test_seed_dependencies_exist(self, http_client):
-        resp = http_client.get(f"{UI_URL}/api/projects/snaphabit")
+        resp = http_client.get(f"{API_URL}/api/projects/snaphabit")
         assert resp.status_code == 200
         assert len(resp.json()["dependencies"]) >= 5
 
     def test_export_produces_markdown(self, http_client):
-        resp = http_client.get(f"{UI_URL}/api/projects/snaphabit/export")
+        resp = http_client.get(f"{API_URL}/api/projects/snaphabit/export")
         assert resp.status_code == 200
         assert "# SnapHabit" in resp.text

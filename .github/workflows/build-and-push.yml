@@ -21,8 +21,10 @@ jobs:
         include:
           - image: mcp-server
             dockerfile: mcp_server/Dockerfile
-          - image: ui
-            dockerfile: ui/Dockerfile
+          - image: api
+            dockerfile: api/Dockerfile
+          - image: frontend
+            dockerfile: frontend/Dockerfile
 
     steps:
       - uses: actions/checkout@v4

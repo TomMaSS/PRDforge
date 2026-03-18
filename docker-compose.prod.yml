@@ -44,8 +44,8 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  ui:
-    image: ghcr.io/tommass/prdforge-ui:${PRDFORGE_VERSION:-latest}
+  python-api:
+    image: ghcr.io/tommass/prdforge-api:${PRDFORGE_VERSION:-latest}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-prdforge}:${POSTGRES_PASSWORD:-prdforge}@postgres:5432/${POSTGRES_DB:-prdforge}
       CHAT_PROVIDER: ${CHAT_PROVIDER:-claude_cli}
@@ -64,6 +64,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/tommass/prdforge-frontend:${PRDFORGE_VERSION:-latest}
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ""
+    depends_on:
+      - python-api
     restart: unless-stopped
 
 volumes:

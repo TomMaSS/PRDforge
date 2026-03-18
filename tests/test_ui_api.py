@@ -1,4 +1,4 @@
-"""Tests for FastAPI UI endpoints."""
+"""Tests for Python API endpoints."""
 
 import json
 
@@ -6,13 +6,6 @@ import pytest_asyncio
 
 
 class TestUIEndpoints:
-    async def test_index_html(self, ui_client):
-        resp = await ui_client.get("/")
-        assert resp.status_code == 200
-        assert "text/html" in resp.headers["content-type"]
-        assert "PRD Forge" in resp.text
-        assert "marked.min.js" in resp.text
-
     async def test_list_projects(self, ui_client):
         resp = await ui_client.get("/api/projects")
         assert resp.status_code == 200

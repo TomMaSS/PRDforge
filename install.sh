@@ -241,7 +241,8 @@ else
   # Try pre-built images from ghcr.io, fall back to local build
   PROD_COMPOSE="$SCRIPT_DIR/docker-compose.prod.yml"
   if docker pull "$GHCR_PREFIX-mcp-server:latest" >/dev/null 2>&1 && \
-     docker pull "$GHCR_PREFIX-ui:latest" >/dev/null 2>&1; then
+     docker pull "$GHCR_PREFIX-api:latest" >/dev/null 2>&1 && \
+     docker pull "$GHCR_PREFIX-frontend:latest" >/dev/null 2>&1; then
     ok "Pulled pre-built images from ghcr.io"
     COMPOSE_FILE="$PROD_COMPOSE"
     info "Starting Docker services (pre-built)..."
@@ -261,7 +262,7 @@ import sys, json
 lines = sys.stdin.read().strip().split('\n')
 services = [json.loads(l) for l in lines if l.strip()]
 healthy = all(s.get('Health','') == 'healthy' or s.get('State','') == 'running' for s in services)
-sys.exit(0 if healthy and len(services) >= 3 else 1)
+sys.exit(0 if healthy and len(services) >= 4 else 1)
 " 2>/dev/null; then
     break
   fi
@@ -321,16 +322,23 @@ else
 fi
 
 if curl -sf http://localhost:8088/health -o /dev/null 2>/dev/null; then
-  ok "Web UI responding (http://localhost:8088)"
+  ok "Python API responding (http://localhost:8088)"
 else
-  warn "Web UI not responding yet — may still be starting"
+  warn "Python API not responding yet — may still be starting"
+fi
+
+if curl -sf http://localhost:3000/ -o /dev/null 2>/dev/null; then
+  ok "Frontend responding (http://localhost:3000)"
+else
+  warn "Frontend not responding yet — may still be starting"
 fi
 
 # ─── Done ────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}PRDforge installed successfully!${NC}"
 echo ""
-echo "  Web UI:     http://localhost:8088"
+echo "  Frontend:   http://localhost:3000"
+echo "  Python API: http://localhost:8088"
 echo "  MCP Server: http://localhost:8080/mcp/"
 echo ""
 if [ "$MODE" = "code" ]; then

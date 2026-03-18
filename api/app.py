@@ -18,8 +18,7 @@ from typing import Any
 import asyncpg
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "mcp_server"))
@@ -82,8 +81,7 @@ async def lifespan(app: FastAPI):
         await pool.close()
 
 
-app = FastAPI(title="PRD Forge UI", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
+app = FastAPI(title="PRD Forge API", lifespan=lifespan)
 
 
 def dt(v):
@@ -108,9 +106,6 @@ def row_dict(r):
     return d
 
 
-_static_dir = os.path.join(os.path.dirname(__file__), "static")
-with open(os.path.join(_static_dir, "index.html")) as _f:
-    HTML = _f.read()
 
 
 CHAT_ALLOWED_MCP_TOOLS: dict[str, dict[str, Any]] = {
@@ -1114,11 +1109,6 @@ async def _ensure_chat_generated_project_graph_data(project_id) -> None:
         await _backfill_linear_dependencies(project_id)
 
 
-
-
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    return HTML
 
 
 @app.get("/api/projects")
