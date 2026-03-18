@@ -613,9 +613,9 @@ class TestChatUI:
         pid = await pool.fetchval("SELECT id FROM projects WHERE slug='snaphabit'")
         chat_id = await pool.fetchval(
             """
-            INSERT INTO project_chats (project_id)
-            VALUES ($1)
-            ON CONFLICT (project_id)
+            INSERT INTO project_chats (project_id, chat_type)
+            VALUES ($1, 'main')
+            ON CONFLICT (project_id, chat_type, COALESCE(section_id, '00000000-0000-0000-0000-000000000000'))
             DO UPDATE SET updated_at = now()
             RETURNING id
             """,
@@ -697,9 +697,9 @@ class TestChatUI:
         pid = await pool.fetchval("SELECT id FROM projects WHERE slug='snaphabit'")
         chat_id = await pool.fetchval(
             """
-            INSERT INTO project_chats (project_id)
-            VALUES ($1)
-            ON CONFLICT (project_id)
+            INSERT INTO project_chats (project_id, chat_type)
+            VALUES ($1, 'main')
+            ON CONFLICT (project_id, chat_type, COALESCE(section_id, '00000000-0000-0000-0000-000000000000'))
             DO UPDATE SET updated_at = now()
             RETURNING id
             """,

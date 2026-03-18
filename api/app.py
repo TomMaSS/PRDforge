@@ -855,16 +855,27 @@ async def _resolve_project_id_or_none(slug: str):
     return await pool.fetchval("SELECT id FROM projects WHERE slug = $1", slug)
 
 
-async def _get_or_create_project_chat(project_id):
+async def _get_or_create_project_chat(project_id, chat_type="main", section_id=None):
+    if section_id:
+        return await pool.fetchval(
+            """
+            INSERT INTO project_chats (project_id, chat_type, section_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (project_id, chat_type, COALESCE(section_id, '00000000-0000-0000-0000-000000000000'))
+            DO UPDATE SET updated_at = now()
+            RETURNING id
+            """,
+            project_id, chat_type, section_id,
+        )
     return await pool.fetchval(
         """
-        INSERT INTO project_chats (project_id)
-        VALUES ($1)
-        ON CONFLICT (project_id)
+        INSERT INTO project_chats (project_id, chat_type)
+        VALUES ($1, $2)
+        ON CONFLICT (project_id, chat_type, COALESCE(section_id, '00000000-0000-0000-0000-000000000000'))
         DO UPDATE SET updated_at = now()
         RETURNING id
         """,
-        project_id,
+        project_id, chat_type,
     )
 
 
