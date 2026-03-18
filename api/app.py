@@ -1584,21 +1584,6 @@ async def chat_provider_status():
     }
 
 
-@app.put("/api/chat/api-key")
-async def set_chat_api_key(request: Request):
-    """Set Anthropic API key at runtime (not persisted to disk)."""
-    global _runtime_anthropic_api_key
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse({"error": "invalid JSON body"}, 400)
-    key = str(body.get("api_key") or "").strip()
-    if key and not key.startswith("sk-ant-"):
-        return JSONResponse({"error": "Invalid API key format (expected sk-ant-...)"}, 400)
-    _runtime_anthropic_api_key = key
-    return {"ok": True, "configured": bool(key), "key_hint": f"...{key[-4:]}" if len(key) >= 4 else ""}
-
-
 @app.post("/api/chat/cli-login")
 async def cli_login():
     """Generate PKCE OAuth URL for Claude CLI authentication."""
