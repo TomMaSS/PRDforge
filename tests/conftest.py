@@ -26,7 +26,10 @@ try:
     async def clean_test_data(db_pool):
         """Clean up test-created data after each test, preserving seed data."""
         async def _clean():
-            await db_pool.execute("DELETE FROM mcp_activity")
+            # FK-safe order. Uses to_regclass() — safe when tables don't exist yet.
+            for t in ['prdforge_bootstrap', 'project_members', 'mcp_activity']:
+                if await db_pool.fetchval(f"SELECT to_regclass('{t}')") is not None:
+                    await db_pool.execute(f"DELETE FROM {t}")
             await db_pool.execute("DELETE FROM chat_messages")
             await db_pool.execute("DELETE FROM project_chats")
             await db_pool.execute("DELETE FROM comment_replies")
