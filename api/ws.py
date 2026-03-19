@@ -20,9 +20,11 @@ WS_TOKEN_SECRET = os.environ.get("WS_TOKEN_SECRET", _DEFAULT_WS_SECRET)
 WS_TOKEN_TTL = int(os.environ.get("WS_TOKEN_TTL_SECONDS", "120"))
 
 if WS_TOKEN_SECRET == _DEFAULT_WS_SECRET:
-    logger.warning(
-        "WS_TOKEN_SECRET is using the default dev value — "
-        "set WS_TOKEN_SECRET env var in production"
+    import sys
+    print(
+        "WARNING: WS_TOKEN_SECRET is using the default dev value — "
+        "set WS_TOKEN_SECRET env var in production",
+        file=sys.stderr,
     )
 
 
