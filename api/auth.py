@@ -145,11 +145,12 @@ async def require_authenticated_user(request: Request, pool):
 
 async def _is_auth_enforced(pool) -> bool:
     """Return True if auth should be enforced (tables exist AND setup completed)."""
-    auth_exists = await pool.fetchval("SELECT to_regclass('session')")
+    tbl = AUTH_TABLES["session"]
+    auth_exists = await pool.fetchval(f"""SELECT to_regclass('public."{tbl}"')""")
     if not auth_exists:
         return False
-    bootstrap_table = await pool.fetchval("SELECT to_regclass('prdforge_bootstrap')")
-    if bootstrap_table:
+    bootstrap_exists = await pool.fetchval("SELECT to_regclass('public.prdforge_bootstrap')")
+    if bootstrap_exists:
         has_bootstrap = await pool.fetchval("SELECT 1 FROM prdforge_bootstrap LIMIT 1")
         if not has_bootstrap:
             return False

@@ -116,7 +116,6 @@ class TestWSTokenEndpoint:
         await server.prd_create_project(name="WS Test", slug="ws-test")
 
         resp = await ui_client.post("/api/ws-token", json={
-            "user_id": "test-user",
             "project_slug": "ws-test",
         })
         assert resp.status_code == 200
@@ -124,12 +123,12 @@ class TestWSTokenEndpoint:
         assert "token" in data
 
     async def test_mint_token_missing_fields(self, ui_client):
-        resp = await ui_client.post("/api/ws-token", json={"user_id": "x"})
+        resp = await ui_client.post("/api/ws-token", json={})
         assert resp.status_code == 400
 
     async def test_mint_token_unknown_project(self, ui_client):
         resp = await ui_client.post("/api/ws-token", json={
-            "user_id": "x", "project_slug": "nonexistent",
+            "project_slug": "nonexistent",
         })
         assert resp.status_code == 404
 

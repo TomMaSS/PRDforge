@@ -40,7 +40,7 @@ export function useProjectWebSocket({
       const res = await fetch("/api/ws-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, project_slug: projectSlug }),
+        body: JSON.stringify({ project_slug: projectSlug }),
       });
       if (!res.ok) return;
       const { token } = await res.json();

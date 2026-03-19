@@ -2412,8 +2412,15 @@ async def export_project(slug: str):
 # --- Member management ---
 
 @app.get("/api/projects/{slug}/members")
-async def list_project_members(slug: str):
+async def list_project_members(slug: str, request: Request):
     """List all members of a project."""
+    from auth import require_project_access
+
+    access = await require_project_access(request, pool, slug, min_role="viewer")
+    user, role = access
+    if isinstance(user, JSONResponse):
+        return user
+
     proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
@@ -2429,6 +2436,13 @@ async def list_project_members(slug: str):
 @app.post("/api/projects/{slug}/members")
 async def add_project_member(slug: str, request: Request):
     """Add a member to a project."""
+    from auth import require_project_access
+
+    access = await require_project_access(request, pool, slug, min_role="admin")
+    user, role = access
+    if isinstance(user, JSONResponse):
+        return user
+
     proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
@@ -2451,13 +2465,20 @@ async def add_project_member(slug: str, request: Request):
             RETURNING id, user_id, role, created_at
         """, proj["id"], _uuid.UUID(user_id), role)
         return row_dict(row)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, 500)
+    except Exception:
+        return JSONResponse({"error": "internal error"}, 500)
 
 
 @app.delete("/api/projects/{slug}/members/{user_id}")
-async def remove_project_member(slug: str, user_id: str):
+async def remove_project_member(slug: str, user_id: str, request: Request):
     """Remove a member from a project."""
+    from auth import require_project_access
+
+    access = await require_project_access(request, pool, slug, min_role="admin")
+    user, role = access
+    if isinstance(user, JSONResponse):
+        return user
+
     proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
@@ -2492,6 +2513,7 @@ async def list_audit_events(slug: str, limit: int = 50):
 @app.post("/api/ws-token")
 async def create_ws_token(request: Request):
     """Mint a short-lived HMAC token for WebSocket authentication."""
+    from auth import require_project_access
     from ws import mint_ws_token
 
     try:
@@ -2499,17 +2521,23 @@ async def create_ws_token(request: Request):
     except Exception:
         return JSONResponse({"error": "invalid JSON body"}, 400)
 
-    user_id = body.get("user_id")
     project_slug = body.get("project_slug")
-    if not user_id or not project_slug:
-        return JSONResponse({"error": "user_id and project_slug required"}, 400)
+    if not project_slug:
+        return JSONResponse({"error": "project_slug required"}, 400)
 
     # Verify project exists
     proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", project_slug)
     if not proj:
         return JSONResponse({"error": f"project '{project_slug}' not found"}, 404)
 
-    token = mint_ws_token(user_id, project_slug)
+    access = await require_project_access(request, pool, project_slug, min_role="viewer")
+    user, role = access
+    if isinstance(user, JSONResponse):
+        return user
+
+    # user_id is None in pre-setup mode (anonymous), str otherwise
+    user_id = user.get("user_id") or "anonymous"
+    token = mint_ws_token(str(user_id), project_slug)
     return {"token": token}
 
 
@@ -2517,11 +2545,13 @@ async def create_ws_token(request: Request):
 
 # Connected clients: {project_slug: {user_id: WebSocket}}
 _ws_connections: dict[str, dict[str, WebSocket]] = {}
+_ws_redis_warned = [False]  # mutable holder — warn once, no global needed
 
 
 @app.websocket("/ws/projects/{slug}")
 async def websocket_project(websocket: WebSocket, slug: str):
     """WebSocket endpoint for real-time project updates and presence."""
+    from auth import _is_auth_enforced, get_user_project_role
     from ws import verify_ws_token
 
     token = websocket.query_params.get("token")
@@ -2546,6 +2576,17 @@ async def websocket_project(websocket: WebSocket, slug: str):
         was_set = await redis_client.set(f"ws:jti:{jti}", "1", nx=True, ex=120)
         if not was_set:
             await websocket.close(code=4002, reason="Token already used")
+            return
+    elif not redis_client and jti:
+        if not _ws_redis_warned[0]:
+            logger.warning("Redis unavailable — WS token replay protection disabled")
+            _ws_redis_warned[0] = True
+
+    # Membership re-check: user may have been removed since token was minted
+    if await _is_auth_enforced(pool):
+        ws_role = await get_user_project_role(pool, user_id, slug)
+        if not ws_role:
+            await websocket.close(code=4003, reason="No project access")
             return
 
     await websocket.accept()

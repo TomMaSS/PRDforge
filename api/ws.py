@@ -15,10 +15,15 @@ import uuid
 
 logger = logging.getLogger("prd_forge_ws")
 
-WS_TOKEN_SECRET = os.environ.get(
-    "WS_TOKEN_SECRET", "dev-ws-secret-change-in-production-0000000000000000"
-)
+_DEFAULT_WS_SECRET = "dev-ws-secret-change-in-production-0000000000000000"
+WS_TOKEN_SECRET = os.environ.get("WS_TOKEN_SECRET", _DEFAULT_WS_SECRET)
 WS_TOKEN_TTL = int(os.environ.get("WS_TOKEN_TTL_SECONDS", "120"))
+
+if WS_TOKEN_SECRET == _DEFAULT_WS_SECRET:
+    logger.warning(
+        "WS_TOKEN_SECRET is using the default dev value — "
+        "set WS_TOKEN_SECRET env var in production"
+    )
 
 
 def mint_ws_token(user_id: str, project_slug: str) -> str:
