@@ -14,7 +14,9 @@ import asyncpg
 from mcp.server.fastmcp import FastMCP
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from shared.constants import VALID_SECTION_TYPES, SECTION_TYPE_ALIASES
 from shared.settings import DEFAULT_PROJECT_SETTINGS, SETTINGS_SCHEMA, validate_settings
+from shared.project_factory import create_project_with_template
 
 logger = logging.getLogger("prd_forge_mcp")
 logging.basicConfig(
@@ -27,21 +29,7 @@ SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 MAX_SLUG = 100
 VALID_STATUSES = {"draft", "in_progress", "review", "approved", "outdated"}
 VALID_DEP_TYPES = {"references", "implements", "blocks", "extends"}
-VALID_SECTION_TYPES = {
-    "overview", "tech_spec", "data_model", "api_spec", "ui_design",
-    "architecture", "deployment", "security", "testing", "timeline", "general",
-}
-SECTION_TYPE_ALIASES = {
-    "requirement": "general",
-    "requirements": "general",
-    "functional_requirements": "tech_spec",
-    "non_functional_requirements": "tech_spec",
-    "api": "api_spec",
-    "data": "data_model",
-    "ui": "ui_design",
-    "ux": "ui_design",
-    "roadmap": "timeline",
-}
+# VALID_SECTION_TYPES and SECTION_TYPE_ALIASES imported from shared.constants
 
 # --- Pool ---
 _pool: asyncpg.Pool | None = None
@@ -204,20 +192,22 @@ async def prd_list_projects() -> str:
 @mcp.tool(
     annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
 )
-async def prd_create_project(name: str, slug: str, description: str = "") -> str:
-    """Create a new PRD project. Slug must be unique, lowercase alphanumeric with hyphens."""
-    slug_err = validate_slug(slug)
-    if slug_err:
-        return err(slug_err)
+async def prd_create_project(name: str, slug: str, description: str = "", template: str = "") -> str:
+    """Create a new PRD project. Slug must be unique, lowercase alphanumeric with hyphens.
+    Optional template: 'blank', 'saas-mvp', 'mobile-app', 'api-design'."""
     try:
         pool = await get_pool()
-        row = await pool.fetchrow(
-            "INSERT INTO projects (name, slug, description) VALUES ($1, $2, $3) RETURNING *",
-            name, slug, description,
+        result = await create_project_with_template(
+            pool, name, slug, description,
+            template_id=template or None,
         )
-        logger.info("Created project: %s", slug)
-        await _record_activity(pool, row["id"], "prd_create_project", {"slug": slug})
-        return ok({"created": row_to_dict(row)})
+        logger.info("Created project: %s (template=%s)", slug, template or "none")
+        pid = await resolve_project_id(pool, slug)
+        if pid:
+            await _record_activity(pool, pid, "prd_create_project", {"slug": slug, "template": template or "none"})
+        return ok({"created": result})
+    except ValueError as e:
+        return err(str(e))
     except asyncpg.UniqueViolationError:
         return err(f"project with slug '{slug}' already exists")
     except Exception as e:

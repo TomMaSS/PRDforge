@@ -23,6 +23,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "mcp_server"))
 from shared.settings import CHAT_PROVIDER_VALUES, DEFAULT_PROJECT_SETTINGS, validate_settings
+from shared.project_factory import create_project_with_template
+from shared.templates import list_templates
 
 pool: asyncpg.Pool | None = None
 logger = logging.getLogger("prd_forge_ui")
@@ -1381,8 +1383,19 @@ async def list_projects():
     return [row_dict(r) for r in rows]
 
 
+@app.get("/api/templates")
+async def get_templates():
+    return list_templates()
+
+
 @app.post("/api/projects")
 async def create_project(request: Request):
+    from auth import require_authenticated_user
+
+    user = await require_authenticated_user(request, pool)
+    if isinstance(user, JSONResponse):
+        return user
+
     try:
         body = await request.json()
     except Exception:
@@ -1401,22 +1414,25 @@ async def create_project(request: Request):
         )
 
     description = str(body.get("description") or "").strip()
+    template_id = str(body.get("template_id") or "").strip() or None
 
     try:
-        row = await pool.fetchrow(
-            """
-            INSERT INTO projects (name, slug, description)
-            VALUES ($1, $2, $3)
-            RETURNING id, slug, name, description, version, created_at, updated_at
-            """,
+        result = await create_project_with_template(
+            pool,
             name,
             slug,
             description,
+            template_id=template_id,
+            user_id=user.get("user_id"),
         )
+        return result
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, 400)
     except asyncpg.UniqueViolationError:
         return JSONResponse({"error": f"project slug '{slug}' already exists"}, 409)
-
-    return row_dict(row)
+    except Exception as e:
+        logger.error("create_project: %s", e)
+        return JSONResponse({"error": "internal error"}, 500)
 
 
 @app.get("/api/projects/{slug}")
@@ -1601,6 +1617,13 @@ async def patch_section(slug: str, section: str, request: Request):
 
 @app.post("/api/projects/{slug}/sections/{section}/notes")
 async def update_notes(slug: str, section: str, request: Request):
+    from auth import require_project_access
+
+    access = await require_project_access(request, pool, slug, min_role="editor")
+    user, role = access
+    if isinstance(user, JSONResponse):
+        return user
+
     body = await request.json()
     notes = body.get("notes", "")
     proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)

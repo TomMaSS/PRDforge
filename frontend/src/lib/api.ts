@@ -38,10 +38,34 @@ export async function fetchTokenStats(slug: string): Promise<TokenStats> {
 export async function createProject(data: {
   name: string;
   description?: string;
+  template_id?: string;
 }): Promise<Project> {
   return apiFetch<Project>("/api/projects", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
+  });
+}
+
+export interface TemplateInfo {
+  id: string;
+  name: string;
+  description: string;
+  section_count: number;
+}
+
+export async function fetchTemplates(): Promise<TemplateInfo[]> {
+  return apiFetch<TemplateInfo[]>("/api/templates");
+}
+
+export async function updateSectionNotes(
+  projectSlug: string,
+  sectionSlug: string,
+  notes: string
+): Promise<{ ok: boolean; notes: string }> {
+  return apiFetch(`/api/projects/${projectSlug}/sections/${sectionSlug}/notes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notes }),
   });
 }

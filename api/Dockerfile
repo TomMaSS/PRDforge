@@ -9,7 +9,8 @@ COPY api/requirements.txt /app/api/
 RUN pip install --no-cache-dir -r /app/api/requirements.txt
 COPY shared/ /app/shared/
 COPY mcp_server/ /app/mcp_server/
-COPY api/app.py /app/api/
+COPY api/app.py api/auth.py api/errors.py /app/api/
+COPY api/auth_contract.py /app/api/
 COPY api/static/ /app/api/static/
 WORKDIR /app/api
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8088"]

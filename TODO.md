@@ -2,7 +2,7 @@
 
 ## High Impact, Moderate Effort – Do Next
 
-- [ ] Agent personas for chat — per-project `system_prompt` in settings + per-section `agent_prompt` override. Ship 5-6 presets (PRD Architect, Technical Reviewer, UX/Design, QA Strategist, Executive Summary). Users pick preset or write custom. Passed as system message to Claude CLI. Section-level prompt overrides project-level when chatting in that section context.
+- [ ] Agent personas for chat — per-project `system_prompt` in settings + per-section `agent_prompt` override. Ship 5-6 presets (PRD Architect, Technical Reviewer, UX/Design, QA Strategist, Executive Summary). Users pick preset or write custom. Passed as system message to the chat provider. Section-level prompt overrides project-level when chatting in that section context.
 - [ ] Section templates — offer project templates beyond blank/SnapHabit: "SaaS MVP", "API Design", "Mobile App", "Infrastructure Migration". Each is a seed SQL or importable markdown showcasing different dependency patterns.
 - [ ] add notes (accordion) to section. Here, I would like the option to add a note to the entire section.
 - [ ] We need to update the readme relative to all our recent changes, create a preview as we did through the playwrite, and make it as commercially product-successful as possible to attract potential users' attention.

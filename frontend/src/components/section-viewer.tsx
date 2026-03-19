@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import { MessageSquarePlus, Pencil, Trash2, Check, X } from "lucide-react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { MessageSquarePlus, Pencil, Trash2, Check, X, ChevronRight, StickyNote } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { StatusDot } from "@/components/status-dot";
+import { updateSectionNotes } from "@/lib/api";
 import type { SectionDetailResponse } from "@/lib/types";
 
 interface SectionViewerProps {
@@ -47,6 +48,19 @@ export function SectionViewer({
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editBody, setEditBody] = useState("");
+
+  // Notes accordion state
+  const [notesExpanded, setNotesExpanded] = useState(false);
+  const [notesEditing, setNotesEditing] = useState(false);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [notesSaving, setNotesSaving] = useState(false);
+
+  // Reset notes state when section changes
+  useEffect(() => {
+    setNotesExpanded(false);
+    setNotesEditing(false);
+    setNotesDraft("");
+  }, [section.slug]);
 
   const handleStatusChange = async (newStatus: string) => {
     try {
@@ -190,6 +204,30 @@ export function SectionViewer({
     }
   };
 
+  const handleNotesSave = async () => {
+    setNotesSaving(true);
+    try {
+      await updateSectionNotes(projectSlug, section.slug, notesDraft);
+      toast.success("Notes updated");
+      setNotesEditing(false);
+      onCommentAdded?.(); // triggers section reload
+    } catch {
+      toast.error("Failed to update notes");
+    } finally {
+      setNotesSaving(false);
+    }
+  };
+
+  const handleNotesEditStart = () => {
+    setNotesDraft(section.notes || "");
+    setNotesEditing(true);
+  };
+
+  const handleNotesEditCancel = () => {
+    setNotesEditing(false);
+    setNotesDraft("");
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-3xl mx-auto">
@@ -289,13 +327,85 @@ export function SectionViewer({
           <MarkdownRenderer content={section.content} />
         </div>
 
-        {/* Notes */}
-        {section.notes && (
-          <div className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-            <h3 className="text-sm font-semibold mb-2">Notes</h3>
-            <MarkdownRenderer content={section.notes} className="text-sm" />
+        {/* Notes accordion */}
+        <div className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5">
+          <button
+            type="button"
+            onClick={() => setNotesExpanded((v) => !v)}
+            className="flex w-full items-center gap-2 p-4 text-left"
+          >
+            <ChevronRight
+              className={`h-4 w-4 text-amber-600 transition-transform ${
+                notesExpanded ? "rotate-90" : ""
+              }`}
+            />
+            <StickyNote className="h-4 w-4 text-amber-600" />
+            <span className="text-sm font-semibold flex-1">Notes</span>
+            {!notesEditing && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setNotesExpanded(true);
+                  handleNotesEditStart();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.stopPropagation();
+                    setNotesExpanded(true);
+                    handleNotesEditStart();
+                  }
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                {section.notes ? "Edit" : "Add notes"}
+              </span>
+            )}
+          </button>
+          <div
+            className={`overflow-hidden transition-all duration-200 ${
+              notesExpanded ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0"
+            }`}
+          >
+            <div className="px-4 pb-4">
+              {notesEditing ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={notesDraft}
+                    onChange={(e) => setNotesDraft(e.target.value)}
+                    placeholder="Add notes for this section (supports Markdown)..."
+                    rows={6}
+                    className="text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={handleNotesSave}
+                      disabled={notesSaving}
+                    >
+                      <Check className="h-3 w-3 mr-1" />
+                      {notesSaving ? "Saving..." : "Save"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleNotesEditCancel}
+                    >
+                      <X className="h-3 w-3 mr-1" /> Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : section.notes ? (
+                <MarkdownRenderer content={section.notes} className="text-sm" />
+              ) : (
+                <p className="text-sm text-muted-foreground italic">
+                  No notes yet.
+                </p>
+              )}
+            </div>
           </div>
-        )}
+        </div>
 
         {/* Comments panel */}
         {comments.length > 0 && (

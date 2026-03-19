@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FolderOpen, Plus } from "lucide-react";
+import { FolderOpen, Plus, Check } from "lucide-react";
 import { TopBar } from "@/components/top-bar";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,7 +25,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/empty-state";
 import { LoadingOverlay } from "@/components/loading-overlay";
-import { fetchProjects, createProject } from "@/lib/api";
+import { fetchProjects, createProject, fetchTemplates } from "@/lib/api";
+import type { TemplateInfo } from "@/lib/api";
 import type { Project } from "@/lib/types";
 
 export default function ProjectsPage() {
@@ -35,6 +36,8 @@ export default function ProjectsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [templateId, setTemplateId] = useState("blank");
+  const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -42,6 +45,7 @@ export default function ProjectsPage() {
       .then(setProjects)
       .catch(console.error)
       .finally(() => setLoading(false));
+    fetchTemplates().then(setTemplates).catch(console.error);
   }, []);
 
   const handleCreate = async () => {
@@ -51,11 +55,13 @@ export default function ProjectsPage() {
       const project = await createProject({
         name: name.trim(),
         description: description.trim(),
+        template_id: templateId,
       });
       setProjects((prev) => [...prev, project]);
       setDialogOpen(false);
       setName("");
       setDescription("");
+      setTemplateId("blank");
       router.push(`/projects/${project.slug}`);
     } catch (err) {
       console.error("Failed to create project:", err);
@@ -85,15 +91,45 @@ export default function ProjectsPage() {
                   New Project
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
                   <DialogTitle>Create Project</DialogTitle>
                   <DialogDescription>
-                    Create a new PRD project to organize your
-                    requirements.
+                    Choose a template and create a new PRD project.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
+                  {/* Template selector */}
+                  <div>
+                    <label className="text-sm font-medium">Template</label>
+                    <div className="grid grid-cols-2 gap-2 mt-1.5">
+                      {templates.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setTemplateId(t.id)}
+                          className={`relative rounded-lg border p-3 text-left text-sm transition-colors hover:bg-accent ${
+                            templateId === t.id
+                              ? "border-primary bg-primary/5"
+                              : "border-border"
+                          }`}
+                        >
+                          {templateId === t.id && (
+                            <Check className="absolute top-2 right-2 h-3.5 w-3.5 text-primary" />
+                          )}
+                          <div className="font-medium">{t.name}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {t.description}
+                          </div>
+                          {t.section_count > 0 && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {t.section_count} sections
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div>
                     <label
                       htmlFor="project-name"

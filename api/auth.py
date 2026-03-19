@@ -125,17 +125,45 @@ def has_min_role(user_role: str, min_role: str) -> bool:
     return ROLE_HIERARCHY.get(user_role, 0) >= ROLE_HIERARCHY.get(min_role, 0)
 
 
+async def require_authenticated_user(request: Request, pool):
+    """Check user is authenticated. Returns user dict or JSONResponse error.
+
+    Does NOT check project role — use for endpoints where the project doesn't exist yet.
+    During migration / pre-setup: if auth not bootstrapped, returns a local-mode user.
+    """
+    from errors import unauthorized
+
+    if not await _is_auth_enforced(pool):
+        return {"user_id": None, "name": "local", "email": ""}
+
+    user = await get_session_user(request, pool)
+    if not user:
+        return unauthorized()
+
+    return user
+
+
+async def _is_auth_enforced(pool) -> bool:
+    """Return True if auth should be enforced (tables exist AND setup completed)."""
+    auth_exists = await pool.fetchval("SELECT to_regclass('session')")
+    if not auth_exists:
+        return False
+    bootstrap_table = await pool.fetchval("SELECT to_regclass('prdforge_bootstrap')")
+    if bootstrap_table:
+        has_bootstrap = await pool.fetchval("SELECT 1 FROM prdforge_bootstrap LIMIT 1")
+        if not has_bootstrap:
+            return False
+    return True
+
+
 async def require_project_access(request: Request, pool, slug: str, min_role: str = "viewer"):
     """Check user has required role for project. Returns (user, role) or JSONResponse error.
 
-    During migration: if no auth tables exist yet, allow all access (single-user mode).
+    During migration / pre-setup: allow all access (single-user mode).
     """
     from errors import unauthorized, permission_denied, not_found
 
-    # Check if auth tables exist (migration may not have run yet)
-    auth_exists = await pool.fetchval("SELECT to_regclass('session')")
-    if not auth_exists:
-        # Single-user mode: no auth enforcement
+    if not await _is_auth_enforced(pool):
         return {"user_id": None, "name": "local", "email": ""}, "owner"
 
     user = await get_session_user(request, pool)

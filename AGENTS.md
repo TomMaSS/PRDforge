@@ -171,20 +171,13 @@ python -m venv .venv && .venv/bin/pip install -r tests/requirements.txt
 - **Chat is experimental** — disabled by default, gated behind `chat_enabled` project setting. All 4 chat endpoints return 403 when disabled. Enable in Settings → Experimental Features.
 - **Chat model selector** — `chat_model` setting (`sonnet`/`opus`/`haiku`) per-project, stored in `project_settings` JSONB. Passed to CLI as `--model` flag. For API provider, mapped via `API_MODEL_MAP` dict.
 - **Section status editor** — `PATCH /api/projects/{slug}/sections/{section}` supports updating status, tags, title, summary. Valid statuses: `draft`, `in_progress`, `review`, `approved`, `outdated`.
-- Web UI Claude chat supports two auth methods: Claude CLI OAuth login (credentials file) or Anthropic API key
+- Web UI Claude chat uses Anthropic API key for authentication
 - Chat tool execution uses an allowlist of MCP tool functions with project slug enforced server-side
 - Web UI chat can attach selected section text as context; backend stores this in `chat_messages.metadata.selection_context` and rehydrates it into future model history turns
 - Web UI chat can attach local files (text payloads); backend stores them in `chat_messages.metadata.attachments` and injects their content into future model history turns
-- Web UI chat provider defaults to `CHAT_PROVIDER` (`claude_cli` or `anthropic_api`) and can be overridden per project via settings (`chat_provider`). In Docker CLI mode, UI container needs `claude` binary plus mounted auth dir (`${HOME}/.claude` → `/root/.claude`)
+- Web UI chat provider can be overridden per project via settings (`chat_provider`)
 - Web UI chat renders selected context inline inside user message bubbles and triggers best-effort live refresh of project/section views after each completed assistant turn
 - Chat attachment limits are controlled via env vars: `CHAT_MAX_ATTACHMENTS`, `CHAT_ATTACHMENT_MAX_BYTES`, `CHAT_ATTACHMENT_MAX_CHARS`, `CHAT_ATTACHMENTS_MAX_TOTAL_CHARS`
-- **Claude CLI auth in Docker:** The CLI reads credentials from `/root/.claude/.credentials.json` (written by the OAuth login flow). Do NOT pass `ANTHROPIC_AUTH_TOKEN` as env var to the CLI subprocess — it causes 401 "OAuth authentication is currently not supported" because the CLI tries to use the token as a Bearer header against the Messages API, which rejects OAuth tokens. The credentials file approach works because the CLI uses its own internal auth flow.
-- **OAuth token format:** The callback page returns `AUTH_CODE#STATE` — split on `#` to get the code and state separately.
-- **OAuth tokens vs API keys:** OAuth tokens (`sk-ant-oat01-*`) do NOT work with the Anthropic Messages API. They only work through the Claude CLI which routes via a different backend. For direct API calls, a real API key (`sk-ant-api03-*`) is required.
-- **CLI default model:** The CLI's built-in default model may be deprecated. Always pass `--model sonnet` (or user-selected model) explicitly. Never rely on the CLI default.
-- **CLI `--allowedTools` required:** In non-interactive mode (`-p` flag), the CLI cannot prompt for tool approval. MCP tools will silently fail unless `--allowedTools` is passed with the explicit list of allowed tool names.
-- In `claude_cli` mode with manual permission settings (e.g. `acceptEdits`), permission requests are surfaced as dedicated `approval` chat events and persisted in `chat_messages.metadata.approval_requests`
-- Approval cards in Web UI chat support **Approve and continue** via `/api/projects/{slug}/chat/approve`, which replays the blocked user turn with `CLAUDE_CLI_APPROVAL_PERMISSION_MODE` (default `acceptEdits`; legacy `dontAsk` is normalized), passes a strict PRD-tool allowlist to Claude CLI, and marks the original approval message as resolved in metadata
 - `GET /api/projects/{slug}` now backfills missing initial revisions for sections; if a project has chat activity and zero dependencies, it backfills a linear references chain so Dependencies/Changelog tabs are populated for chat-generated projects
 - `GET /api/projects/{slug}/token-stats` now includes `project_stats` (`sections`, `dependencies`, `revisions`) in addition to token-savings metrics
 - `install.sh` now auto-selects a free host PostgreSQL port (`5432`, else first free in `5433-5500`) and exports `POSTGRES_PORT` so Docker + Claude Desktop config stay in sync
