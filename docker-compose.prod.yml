@@ -24,6 +24,7 @@ services:
       - ./db/10_password_reset.sql:/docker-entrypoint-initdb.d/10_password_reset.sql:ro
       - ./db/11_chat_multiuser.sql:/docker-entrypoint-initdb.d/11_chat_multiuser.sql:ro
       - ./db/12_better_auth.sql:/docker-entrypoint-initdb.d/12_better_auth.sql:ro
+      - ./db/13_section_access_log.sql:/docker-entrypoint-initdb.d/13_section_access_log.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prdforge}"]
       interval: 3s

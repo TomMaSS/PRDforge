@@ -91,6 +91,9 @@ export interface TokenStats {
   total_loaded_tokens: number;
   total_saved_tokens: number;
   savings_percent: number;
+  sessions: number;
+  best_session_savings: number;
+  avg_sections_per_session: number;
   by_operation: {
     operation: string;
     count: number;
@@ -111,6 +114,12 @@ export interface TokenStats {
     tool_name: string;
     detail: Record<string, unknown>;
     created_at: string;
+  }[];
+  section_heatmap: {
+    slug: string;
+    title: string;
+    access_count: number;
+    has_full_read: number;
   }[];
 }
 

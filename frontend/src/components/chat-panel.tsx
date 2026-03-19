@@ -93,7 +93,7 @@ export function ChatPanel({
   };
 
   return (
-    <div className="flex w-[480px] shrink-0 flex-col border-l bg-card">
+    <div className="flex w-[40%] min-w-[480px] max-w-[700px] shrink-0 flex-col border-l bg-card">
       <div className="border-b px-4 py-3">
         <h3 className="text-sm font-semibold">Chat</h3>
       </div>

@@ -300,7 +300,7 @@ async def prd_read_section(project: str, section: str) -> str:
         )
 
         depends_on = await pool.fetch("""
-            SELECT s.slug, s.title, s.summary, s.status, s.tags,
+            SELECT s.id, s.slug, s.title, s.summary, s.status, s.tags,
                    d.dependency_type AS dep_type, d.description AS dep_reason
             FROM section_dependencies d
             JOIN sections s ON s.id = d.depends_on_id
@@ -308,7 +308,7 @@ async def prd_read_section(project: str, section: str) -> str:
         """, sec_id)
 
         depended_by = await pool.fetch("""
-            SELECT s.slug, s.title, s.summary, s.status, s.tags,
+            SELECT s.id, s.slug, s.title, s.summary, s.status, s.tags,
                    d.dependency_type AS dep_type, d.description AS dep_reason
             FROM section_dependencies d
             JOIN sections s ON s.id = d.section_id
@@ -341,13 +341,20 @@ async def prd_read_section(project: str, section: str) -> str:
             cd["replies"] = replies_by_comment.get(str(c["id"]), [])
             comment_dicts.append(cd)
 
-        # Track token savings
+        # Track token savings — granular section-level access
         loaded_words = (sec["word_count"] or 0) + sum(
             len((d["summary"] or "").split()) for d in depends_on
         ) + sum(
             len((d["summary"] or "").split()) for d in depended_by
         )
         await _record_token_estimate(pool, pid, "read_section", loaded_words)
+        # New: section-level access log for honest dedup
+        accesses = [(sec_id, "full", sec["word_count"] or 0)]
+        for d in depends_on:
+            accesses.append((d["id"], "summary", len((d["summary"] or "").split())))
+        for d in depended_by:
+            accesses.append((d["id"], "summary", len((d["summary"] or "").split())))
+        await _record_section_access(pool, pid, "read_section", accesses)
 
         return ok({
             "section": row_to_dict(sec),
@@ -960,7 +967,7 @@ async def prd_get_overview(project: str) -> str:
             return err(f"project '{project}' not found")
 
         sections = await pool.fetch("""
-            SELECT slug, title, section_type, status, summary, tags, word_count,
+            SELECT id, slug, title, section_type, status, summary, tags, word_count,
                    parent_slug, updated_at
             FROM section_tree WHERE project_id = $1 ORDER BY sort_order
         """, proj["id"])
@@ -981,6 +988,8 @@ async def prd_get_overview(project: str) -> str:
         # Track token savings — overview loads summaries only
         loaded_words = sum(len((s["summary"] or "").split()) for s in sections)
         await _record_token_estimate(pool, proj["id"], "get_overview", loaded_words)
+        accesses = [(s["id"], "summary", len((s["summary"] or "").split())) for s in sections]
+        await _record_section_access(pool, proj["id"], "get_overview", accesses)
 
         return ok({
             "project": {
@@ -1018,16 +1027,18 @@ async def prd_search(project: str, query: str) -> str:
         if query.startswith("tag:"):
             tag = query[4:].strip()
             rows = await pool.fetch("""
-                SELECT slug, title, status, tags, summary
+                SELECT id, slug, title, status, tags, summary
                 FROM sections WHERE project_id = $1 AND $2 = ANY(tags)
                 ORDER BY sort_order
             """, pid, tag)
             loaded_words = sum(len((r["summary"] or "").split()) for r in rows)
             await _record_token_estimate(pool, pid, "search", loaded_words)
+            accesses = [(r["id"], "summary", len((r["summary"] or "").split())) for r in rows]
+            await _record_section_access(pool, pid, "search", accesses)
             return ok({"tag": tag, "results": [row_to_dict(r) for r in rows]})
         else:
             rows = await pool.fetch("""
-                SELECT slug, title, section_type, status, tags,
+                SELECT id, slug, title, section_type, status, tags,
                        ts_rank(to_tsvector('english',
                            coalesce(title,'') || ' ' || coalesce(content,'') || ' ' || coalesce(notes,'')),
                            plainto_tsquery('english', $2)) AS rank,
@@ -1041,6 +1052,8 @@ async def prd_search(project: str, query: str) -> str:
             """, pid, query)
             loaded_words = sum(len((r["snippet"] or "").split()) for r in rows)
             await _record_token_estimate(pool, pid, "search", loaded_words)
+            accesses = [(r["id"], "snippet", len((r["snippet"] or r.get("summary") or "").split())) for r in rows]
+            await _record_section_access(pool, pid, "search", accesses)
             return ok({"query": query, "results": [row_to_dict(r) for r in rows]})
     except Exception as e:
         logger.error("prd_search: %s", e)
@@ -1426,7 +1439,7 @@ async def _record_activity(pool, pid, tool_name: str, detail: dict | None = None
 
 
 async def _record_token_estimate(pool, pid, operation: str, loaded_words: int):
-    """Record a token estimate for tracking context savings."""
+    """Legacy: record a token estimate (kept for backward compat)."""
     try:
         full_doc_words = await pool.fetchval(
             "SELECT COALESCE(SUM(word_count), 0) FROM sections WHERE project_id = $1", pid,
@@ -1440,6 +1453,24 @@ async def _record_token_estimate(pool, pid, operation: str, loaded_words: int):
         )
     except Exception as e:
         logger.warning("token estimate recording failed: %s", e)
+
+
+async def _record_section_access(
+    pool, pid, operation: str,
+    accesses: list[tuple],  # [(section_id, access_level, loaded_words), ...]
+):
+    """Record granular section-level access for honest token savings."""
+    if not accesses:
+        return
+    try:
+        await pool.executemany(
+            "INSERT INTO section_access_log "
+            "(project_id, operation, section_id, access_level, loaded_words) "
+            "VALUES ($1, $2, $3, $4, $5)",
+            [(pid, operation, sid, level, words) for sid, level, words in accesses],
+        )
+    except Exception as e:
+        logger.warning("section access recording failed: %s", e)
 
 
 @mcp.tool(

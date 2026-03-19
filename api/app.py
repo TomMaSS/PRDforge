@@ -1769,66 +1769,144 @@ async def get_token_stats(slug: str):
 
     await _backfill_missing_initial_revisions(pid)
 
-    totals = await pool.fetchrow("""
-        SELECT COUNT(*) AS operations,
-               COALESCE(SUM(full_doc_tokens), 0) AS total_full,
-               COALESCE(SUM(loaded_tokens), 0) AS total_loaded
-        FROM token_estimates WHERE project_id = $1
+    # Full document size (current)
+    full_doc = await pool.fetchrow("""
+        SELECT COALESCE(SUM(word_count), 0) AS total_words, COUNT(*) AS section_count
+        FROM sections WHERE project_id = $1
     """, pid)
+    full_doc_words = full_doc["total_words"]
+    full_doc_tokens = int(full_doc_words * 1.3)
 
+    # Check if new access log has data
+    has_access_log = await pool.fetchval(
+        "SELECT EXISTS(SELECT 1 FROM section_access_log WHERE project_id = $1)", pid
+    )
+
+    if has_access_log:
+        # --- Honest session-based calculation ---
+        sessions = await pool.fetch("""
+            WITH numbered AS (
+                SELECT *,
+                    CASE WHEN created_at - LAG(created_at) OVER (ORDER BY created_at)
+                         > interval '30 minutes'
+                         OR LAG(created_at) OVER (ORDER BY created_at) IS NULL
+                    THEN 1 ELSE 0 END AS new_session
+                FROM section_access_log WHERE project_id = $1
+            ),
+            sessioned AS (
+                SELECT *, SUM(new_session) OVER (ORDER BY created_at) AS session_id
+                FROM numbered
+            ),
+            session_coverage AS (
+                SELECT session_id, section_id,
+                    MAX(CASE access_level
+                        WHEN 'full' THEN 1.0 WHEN 'summary' THEN 0.10 WHEN 'snippet' THEN 0.15
+                    END) AS coverage
+                FROM sessioned GROUP BY session_id, section_id
+            ),
+            session_stats AS (
+                SELECT sc.session_id,
+                    $2::int AS full_doc_words,
+                    SUM(COALESCE(s.word_count, 0) * sc.coverage)::int AS unique_loaded_words,
+                    COUNT(DISTINCT sc.section_id) AS sections_touched
+                FROM session_coverage sc
+                LEFT JOIN sections s ON s.id = sc.section_id
+                GROUP BY sc.session_id
+            )
+            SELECT
+                session_id,
+                full_doc_words,
+                unique_loaded_words,
+                sections_touched,
+                CASE WHEN full_doc_words > 0
+                    THEN ROUND((1.0 - unique_loaded_words::numeric / full_doc_words) * 100, 1)
+                    ELSE 0 END AS savings_pct
+            FROM session_stats ORDER BY session_id
+        """, pid, full_doc_words)
+
+        total_ops = await pool.fetchval(
+            "SELECT COUNT(*) FROM section_access_log WHERE project_id = $1", pid
+        )
+        session_count = len(sessions)
+        avg_savings = round(sum(s["savings_pct"] for s in sessions) / session_count, 1) if session_count > 0 else 0
+        best_session = max((s["savings_pct"] for s in sessions), default=0)
+        avg_sections_per_session = round(sum(s["sections_touched"] for s in sessions) / session_count, 1) if session_count > 0 else 0
+        total_unique_loaded = sum(s["unique_loaded_words"] for s in sessions)
+        total_loaded_tokens = int(total_unique_loaded * 1.3)
+        total_saved_tokens = max(0, full_doc_tokens * session_count - total_loaded_tokens)
+
+        # Section heatmap — how often each section is accessed
+        heatmap = await pool.fetch("""
+            SELECT s.slug, s.title, COUNT(*) AS access_count,
+                MAX(CASE access_level WHEN 'full' THEN 1 WHEN 'summary' THEN 0 WHEN 'snippet' THEN 0 END) AS has_full_read
+            FROM section_access_log sal
+            JOIN sections s ON s.id = sal.section_id
+            WHERE sal.project_id = $1
+            GROUP BY s.slug, s.title
+            ORDER BY access_count DESC
+        """, pid)
+    else:
+        # --- Fallback to legacy token_estimates ---
+        totals = await pool.fetchrow("""
+            SELECT COUNT(*) AS operations,
+                   COALESCE(SUM(full_doc_tokens), 0) AS total_full,
+                   COALESCE(SUM(loaded_tokens), 0) AS total_loaded
+            FROM token_estimates WHERE project_id = $1
+        """, pid)
+        total_full_legacy = totals["total_full"]
+        total_loaded_legacy = totals["total_loaded"]
+        saved_legacy = total_full_legacy - total_loaded_legacy
+        avg_savings = round(saved_legacy / total_full_legacy * 100, 1) if total_full_legacy > 0 else 0
+        total_ops = totals["operations"]
+        session_count = 0
+        best_session = avg_savings
+        avg_sections_per_session = 0
+        total_loaded_tokens = total_loaded_legacy
+        total_saved_tokens = saved_legacy
+        heatmap = []
+
+    # By operation (from legacy table — still populated)
     by_op = await pool.fetch("""
-        SELECT operation,
-               COUNT(*) AS count,
+        SELECT operation, COUNT(*) AS count,
                SUM(full_doc_tokens) AS full_tokens,
                SUM(loaded_tokens) AS loaded_tokens
         FROM token_estimates WHERE project_id = $1
         GROUP BY operation ORDER BY count DESC
     """, pid)
 
+    # Daily trend
     daily = await pool.fetch("""
         SELECT d.day::date AS day,
                COALESCE(COUNT(t.id), 0) AS operations,
                COALESCE(SUM(t.full_doc_tokens - t.loaded_tokens), 0) AS tokens_saved
         FROM generate_series(current_date - 6, current_date, '1 day') AS d(day)
-        LEFT JOIN (
-            SELECT * FROM token_estimates WHERE project_id = $1
-        ) t ON t.created_at::date = d.day
+        LEFT JOIN (SELECT * FROM token_estimates WHERE project_id = $1) t
+            ON t.created_at::date = d.day
         GROUP BY d.day ORDER BY d.day ASC
     """, pid)
 
-    total_full = totals["total_full"]
-    total_loaded = totals["total_loaded"]
-    saved = total_full - total_loaded
-    pct = round(saved / total_full * 100, 1) if total_full > 0 else 0
-
-    project_stats = await pool.fetchrow(
-        """
+    project_stats = await pool.fetchrow("""
         SELECT
             (SELECT COUNT(*) FROM sections WHERE project_id = $1) AS section_count,
             (SELECT COUNT(*) FROM section_dependencies WHERE project_id = $1) AS dependency_count,
             (SELECT COUNT(*) FROM section_revisions r
-             JOIN sections s ON s.id = r.section_id
-             WHERE s.project_id = $1) AS revision_count
-        """,
-        pid,
-    )
-
-    # Recent MCP write activity
-    activity_rows = await pool.fetch("""
-        SELECT tool_name, detail, created_at
-        FROM mcp_activity
-        WHERE project_id = $1
-        ORDER BY created_at DESC
-        LIMIT 50
+             JOIN sections s ON s.id = r.section_id WHERE s.project_id = $1) AS revision_count
     """, pid)
-    activity = [row_dict(r) for r in activity_rows]
+
+    activity_rows = await pool.fetch("""
+        SELECT tool_name, detail, created_at FROM mcp_activity
+        WHERE project_id = $1 ORDER BY created_at DESC LIMIT 50
+    """, pid)
 
     return {
-        "operations": totals["operations"],
-        "total_full_doc_tokens": total_full,
-        "total_loaded_tokens": total_loaded,
-        "total_saved_tokens": saved,
-        "savings_percent": pct,
+        "operations": total_ops,
+        "total_full_doc_tokens": full_doc_tokens,
+        "total_loaded_tokens": total_loaded_tokens,
+        "total_saved_tokens": total_saved_tokens,
+        "savings_percent": float(avg_savings),
+        "sessions": session_count,
+        "best_session_savings": float(best_session),
+        "avg_sections_per_session": float(avg_sections_per_session),
         "by_operation": [row_dict(r) for r in by_op],
         "daily_trend": [{"day": str(r["day"]), "operations": r["operations"],
                          "tokens_saved": r["tokens_saved"]} for r in daily],
@@ -1837,7 +1915,8 @@ async def get_token_stats(slug: str):
             "dependencies": project_stats["dependency_count"],
             "revisions": project_stats["revision_count"],
         },
-        "activity": activity,
+        "activity": [row_dict(r) for r in activity_rows],
+        "section_heatmap": [row_dict(r) for r in heatmap] if heatmap else [],
     }
 
 
