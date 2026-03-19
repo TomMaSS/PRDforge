@@ -16,7 +16,7 @@ DO $$ BEGIN
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'projects' AND column_name = 'created_by'
     ) THEN
-        ALTER TABLE projects ADD COLUMN created_by UUID;
+        ALTER TABLE projects ADD COLUMN created_by TEXT;
     END IF;
 END $$;
 
@@ -25,7 +25,7 @@ DO $$ BEGIN
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'sections' AND column_name = 'updated_by'
     ) THEN
-        ALTER TABLE sections ADD COLUMN updated_by UUID;
+        ALTER TABLE sections ADD COLUMN updated_by TEXT;
     END IF;
 END $$;
 
@@ -34,7 +34,7 @@ DO $$ BEGIN
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'section_revisions' AND column_name = 'created_by'
     ) THEN
-        ALTER TABLE section_revisions ADD COLUMN created_by UUID;
+        ALTER TABLE section_revisions ADD COLUMN created_by TEXT;
     END IF;
 END $$;
 
@@ -43,7 +43,7 @@ DO $$ BEGIN
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'section_comments' AND column_name = 'created_by'
     ) THEN
-        ALTER TABLE section_comments ADD COLUMN created_by UUID;
+        ALTER TABLE section_comments ADD COLUMN created_by TEXT;
     END IF;
 END $$;
 
@@ -52,7 +52,7 @@ DO $$ BEGIN
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'chat_messages' AND column_name = 'created_by'
     ) THEN
-        ALTER TABLE chat_messages ADD COLUMN created_by UUID;
+        ALTER TABLE chat_messages ADD COLUMN created_by TEXT;
     END IF;
 END $$;
 
@@ -61,7 +61,7 @@ DO $$ BEGIN
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'mcp_activity' AND column_name = 'user_id'
     ) THEN
-        ALTER TABLE mcp_activity ADD COLUMN user_id UUID;
+        ALTER TABLE mcp_activity ADD COLUMN user_id TEXT;
     END IF;
 END $$;
 
@@ -69,7 +69,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS project_members (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    user_id     UUID NOT NULL,
+    user_id     TEXT NOT NULL,
     role        TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'editor', 'commenter', 'viewer')),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),

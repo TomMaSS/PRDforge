@@ -2463,7 +2463,7 @@ async def add_project_member(slug: str, request: Request):
             VALUES ($1, $2, $3)
             ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role
             RETURNING id, user_id, role, created_at
-        """, proj["id"], _uuid.UUID(user_id), role)
+        """, proj["id"], user_id, role)
         return row_dict(row)
     except Exception:
         return JSONResponse({"error": "internal error"}, 500)
@@ -2484,7 +2484,7 @@ async def remove_project_member(slug: str, user_id: str, request: Request):
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
     result = await pool.execute(
         "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2",
-        proj["id"], _uuid.UUID(user_id),
+        proj["id"], user_id,
     )
     removed = result.split()[-1] != "0"
     return {"removed": removed}

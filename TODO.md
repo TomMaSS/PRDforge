@@ -2,18 +2,14 @@
 
 ## High Impact, Moderate Effort – Do Next
 
-- [ ] Agent personas for chat — per-project `system_prompt` in settings + per-section `agent_prompt` override. Ship 5-6 presets (PRD Architect, Technical Reviewer, UX/Design, QA Strategist, Executive Summary). Users pick preset or write custom. Passed as system message to the chat provider. Section-level prompt overrides project-level when chatting in that section context.
-- [ ] Section templates — offer project templates beyond blank/SnapHabit: "SaaS MVP", "API Design", "Mobile App", "Infrastructure Migration". Each is a seed SQL or importable markdown showcasing different dependency patterns.
-- [ ] add notes (accordion) to section. Here, I would like the option to add a note to the entire section.
-- [ ] We need to update the readme relative to all our recent changes, create a preview as we did through the playwrite, and make it as commercially product-successful as possible to attract potential users' attention.
+- [ ] Agent personas for chat — per-project `system_prompt` in settings + per-section `agent_prompt` override. Ship 5-6 presets (PRD Architect, Technical Reviewer, UX/Design, QA Strategist, Executive Summary). Users pick preset or write custom. Passed as system message to the chat provider. Section-level prompt overrides project-level when chatting in that section context. *(Base system prompt exists in `_chat_system_prompt`, needs UI + per-project/section override)*
 
 ## Medium Impact, Lower Effort – Quick Wins
 
 - [ ] CONTRIBUTING.md — how to run tests locally, code style expectations, PR process
 - [ ] GitHub repo metadata — description, topics/tags (`mcp`, `claude`, `prd`, `product-requirements`, `ai-tools`, `developer-tools`, `mcp-server`), website URL
 - [ ] `prd_diff_sections` tool — unified diff between two revisions of a section, avoids loading both and diffing manually
-- [ ] ui playwrite tests
-- [ ] add playwrite preview autoupdate (ci for pr + agents.md for agents instaction which sections observe)
+- [ ] UI Playwright tests
 
 ## Medium Impact, Higher Effort – Plan For These
 
@@ -34,10 +30,9 @@
 - [ ] Add `prd_merge_sections` tool (combine two sections into one)
 - [ ] Add `prd_reorder_sections` tool (bulk sort_order update)
 - [ ] Export as PDF via headless browser
-- [ ] UI: keyboard navigation (j/k to move through sections, Enter to select)
 - [ ] MCP auth for remote Claude clients (SSH tunnel or authenticated ingress)
-- [ ] Redis jti uniqueness for WS tokens (SET NX EX — currently TODO in code)
 - [ ] move to tasks github projects
+- [ ] add Playwright preview autoupdate (CI for PR + agents.md for agent instructions on which sections to observe)
 
 ## Done
 
@@ -88,3 +83,8 @@
 - [x] Org-level encrypted API key — Fernet/AES-256
 - [x] Wider chat section — 40% viewport width, min 480px, max 700px
 - [x] Honest token savings math — section_access_log with session-based dedup, coverage fractions (full/summary/snippet), 30-min session windowing
+- [x] Section templates — SaaS MVP, Mobile App project templates with seeded sections and dependencies
+- [x] Notes accordion — per-section collapsible notes with inline editing
+- [x] README + Playwright demo preview — `scripts/record_demo.py` rewritten, demo.gif regenerated
+- [x] Redis jti uniqueness for WS tokens — SET NX EX replay protection in websocket handler
+- [x] Security hardening — member endpoint auth, ws-token auth from session, schema-qualified `to_regclass`, default secret warnings
