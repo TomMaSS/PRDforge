@@ -6,7 +6,7 @@ import sys
 # Add project root + subpackages to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "mcp_server"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ui"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
 
 try:
     import asyncpg
@@ -26,6 +26,10 @@ try:
     async def clean_test_data(db_pool):
         """Clean up test-created data after each test, preserving seed data."""
         async def _clean():
+            # FK-safe order. Uses to_regclass() — safe when tables don't exist yet.
+            for t in ['section_access_log', 'password_reset_tokens', 'audit_events', 'prdforge_bootstrap', 'project_members', 'mcp_activity']:
+                if await db_pool.fetchval(f"SELECT to_regclass('{t}')") is not None:
+                    await db_pool.execute(f"DELETE FROM {t}")
             await db_pool.execute("DELETE FROM chat_messages")
             await db_pool.execute("DELETE FROM project_chats")
             await db_pool.execute("DELETE FROM comment_replies")

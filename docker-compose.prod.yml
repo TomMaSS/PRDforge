@@ -18,6 +18,13 @@ services:
       - ./db/04_replies_and_settings.sql:/docker-entrypoint-initdb.d/04_replies_and_settings.sql:ro
       - ./db/05_token_stats.sql:/docker-entrypoint-initdb.d/05_token_stats.sql:ro
       - ./db/06_chat.sql:/docker-entrypoint-initdb.d/06_chat.sql:ro
+      - ./db/07_multi_user.sql:/docker-entrypoint-initdb.d/07_multi_user.sql:ro
+      - ./db/08_mcp_activity.sql:/docker-entrypoint-initdb.d/08_mcp_activity.sql:ro
+      - ./db/09_audit.sql:/docker-entrypoint-initdb.d/09_audit.sql:ro
+      - ./db/10_password_reset.sql:/docker-entrypoint-initdb.d/10_password_reset.sql:ro
+      - ./db/11_chat_multiuser.sql:/docker-entrypoint-initdb.d/11_chat_multiuser.sql:ro
+      - ./db/12_better_auth.sql:/docker-entrypoint-initdb.d/12_better_auth.sql:ro
+      - ./db/13_section_access_log.sql:/docker-entrypoint-initdb.d/13_section_access_log.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prdforge}"]
       interval: 3s
@@ -43,8 +50,8 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  ui:
-    image: ghcr.io/tommass/prdforge-ui:${PRDFORGE_VERSION:-latest}
+  python-api:
+    image: ghcr.io/tommass/prdforge-api:${PRDFORGE_VERSION:-latest}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-prdforge}:${POSTGRES_PASSWORD:-prdforge}@postgres:5432/${POSTGRES_DB:-prdforge}
       CHAT_PROVIDER: ${CHAT_PROVIDER:-claude_cli}
@@ -63,6 +70,25 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/tommass/prdforge-frontend:${PRDFORGE_VERSION:-latest}
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ""
+    depends_on:
+      - python-api
     restart: unless-stopped
 
 volumes:

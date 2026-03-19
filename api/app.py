@@ -17,13 +17,14 @@ from typing import Any
 
 import asyncpg
 import httpx
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "mcp_server"))
 from shared.settings import CHAT_PROVIDER_VALUES, DEFAULT_PROJECT_SETTINGS, validate_settings
+from shared.project_factory import create_project_with_template
+from shared.templates import list_templates
 
 pool: asyncpg.Pool | None = None
 logger = logging.getLogger("prd_forge_ui")
@@ -73,17 +74,31 @@ def _valid_project_slug(slug: str) -> bool:
     return bool(slug and len(slug) <= 100 and PROJECT_SLUG_RE.match(slug))
 
 
+redis_client = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global pool
+    global pool, redis_client
     pool = await asyncpg.create_pool(os.environ["DATABASE_URL"])
+    redis_url = os.environ.get("REDIS_URL", "")
+    if redis_url:
+        try:
+            import redis.asyncio as aioredis
+            redis_client = aioredis.from_url(redis_url, decode_responses=True)
+            await redis_client.ping()
+            logger.info("Redis connected: %s", redis_url)
+        except Exception as e:
+            logger.warning("Redis not available (real-time features disabled): %s", e)
+            redis_client = None
     yield
+    if redis_client:
+        await redis_client.aclose()
     if pool:
         await pool.close()
 
 
-app = FastAPI(title="PRD Forge UI", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
+app = FastAPI(title="PRD Forge API", lifespan=lifespan)
 
 
 def dt(v):
@@ -108,9 +123,6 @@ def row_dict(r):
     return d
 
 
-_static_dir = os.path.join(os.path.dirname(__file__), "static")
-with open(os.path.join(_static_dir, "index.html")) as _f:
-    HTML = _f.read()
 
 
 CHAT_ALLOWED_MCP_TOOLS: dict[str, dict[str, Any]] = {
@@ -227,6 +239,237 @@ CHAT_ALLOWED_MCP_TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
         "arg_names": ["section", "comment_id", "body"],
+    },
+    "prd_add_comment": {
+        "description": "Add inline comment anchored to text in a section.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "anchor_text": {"type": "string"},
+                "body": {"type": "string"},
+                "anchor_prefix": {"type": "string"},
+                "anchor_suffix": {"type": "string"},
+            },
+            "required": ["section", "anchor_text", "body"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "anchor_text", "body", "anchor_prefix", "anchor_suffix"],
+    },
+    "prd_delete_comment": {
+        "description": "Delete an inline comment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "comment_id": {"type": "string"},
+            },
+            "required": ["section", "comment_id"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "comment_id"],
+    },
+    "prd_create_section": {
+        "description": "Create a new section in the project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "title": {"type": "string"},
+                "section_type": {"type": "string"},
+                "content": {"type": "string"},
+                "summary": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "notes": {"type": "string"},
+                "sort_order": {"type": "integer"},
+            },
+            "required": ["slug", "title"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["slug", "title", "section_type", "content", "summary", "tags", "notes", "sort_order"],
+    },
+    "prd_delete_section": {
+        "description": "Delete a section (warns about dependent sections).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+            },
+            "required": ["section"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section"],
+    },
+    "prd_add_dependency": {
+        "description": "Add dependency between two sections (idempotent).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "depends_on": {"type": "string"},
+                "dependency_type": {"type": "string"},
+                "description": {"type": "string"},
+            },
+            "required": ["section", "depends_on"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "depends_on", "dependency_type", "description"],
+    },
+    "prd_remove_dependency": {
+        "description": "Remove dependency between two sections.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "depends_on": {"type": "string"},
+            },
+            "required": ["section", "depends_on"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "depends_on"],
+    },
+    "prd_suggest_dependencies": {
+        "description": "Suggest dependencies for a section using content similarity.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+            },
+            "required": ["section"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section"],
+    },
+    "prd_get_changelog": {
+        "description": "Get recent revision history across all sections.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer"},
+            },
+            "additionalProperties": False,
+        },
+        "arg_names": ["limit"],
+    },
+    "prd_get_revisions": {
+        "description": "List revisions for a section.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+            },
+            "required": ["section"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section"],
+    },
+    "prd_rollback_section": {
+        "description": "Rollback section to a previous revision (saves backup first).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "revision": {"type": "integer"},
+            },
+            "required": ["section", "revision"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "revision"],
+    },
+    "prd_move_section": {
+        "description": "Move section (change sort order or parent).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "sort_order": {"type": "integer"},
+                "parent_section": {"type": "string"},
+            },
+            "required": ["section"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "sort_order", "parent_section"],
+    },
+    "prd_duplicate_section": {
+        "description": "Duplicate a section with a new slug.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string"},
+                "new_slug": {"type": "string"},
+                "new_title": {"type": "string"},
+            },
+            "required": ["section", "new_slug"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["section", "new_slug", "new_title"],
+    },
+    "prd_bulk_status": {
+        "description": "Bulk update status for multiple sections.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sections": {"type": "array", "items": {"type": "string"}},
+                "status": {"type": "string"},
+            },
+            "required": ["sections", "status"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["sections", "status"],
+    },
+    "prd_export_markdown": {
+        "description": "Export entire project as markdown (large output).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "arg_names": [],
+    },
+    "prd_import_markdown": {
+        "description": "Import markdown document into the project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string"},
+                "replace_existing": {"type": "boolean"},
+                "heading_level": {"type": "integer"},
+                "manual_delimiter": {"type": "string"},
+            },
+            "required": ["markdown"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["markdown", "replace_existing", "heading_level", "manual_delimiter"],
+    },
+    "prd_token_stats": {
+        "description": "Get token savings statistics for the project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "arg_names": [],
+    },
+    "prd_get_settings": {
+        "description": "Get project settings.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "arg_names": [],
+    },
+    "prd_update_settings": {
+        "description": "Update project settings.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "settings": {"type": "object"},
+            },
+            "required": ["settings"],
+            "additionalProperties": False,
+        },
+        "arg_names": ["settings"],
     },
 }
 
@@ -860,16 +1103,27 @@ async def _resolve_project_id_or_none(slug: str):
     return await pool.fetchval("SELECT id FROM projects WHERE slug = $1", slug)
 
 
-async def _get_or_create_project_chat(project_id):
+async def _get_or_create_project_chat(project_id, chat_type="main", section_id=None):
+    if section_id:
+        return await pool.fetchval(
+            """
+            INSERT INTO project_chats (project_id, chat_type, section_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (project_id, chat_type, COALESCE(section_id, '00000000-0000-0000-0000-000000000000'))
+            DO UPDATE SET updated_at = now()
+            RETURNING id
+            """,
+            project_id, chat_type, section_id,
+        )
     return await pool.fetchval(
         """
-        INSERT INTO project_chats (project_id)
-        VALUES ($1)
-        ON CONFLICT (project_id)
+        INSERT INTO project_chats (project_id, chat_type)
+        VALUES ($1, $2)
+        ON CONFLICT (project_id, chat_type, COALESCE(section_id, '00000000-0000-0000-0000-000000000000'))
         DO UPDATE SET updated_at = now()
         RETURNING id
         """,
-        project_id,
+        project_id, chat_type,
     )
 
 
@@ -1116,11 +1370,6 @@ async def _ensure_chat_generated_project_graph_data(project_id) -> None:
 
 
 
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    return HTML
-
-
 @app.get("/api/projects")
 async def list_projects():
     rows = await pool.fetch("""
@@ -1134,8 +1383,19 @@ async def list_projects():
     return [row_dict(r) for r in rows]
 
 
+@app.get("/api/templates")
+async def get_templates():
+    return list_templates()
+
+
 @app.post("/api/projects")
 async def create_project(request: Request):
+    from auth import require_authenticated_user
+
+    user = await require_authenticated_user(request, pool)
+    if isinstance(user, JSONResponse):
+        return user
+
     try:
         body = await request.json()
     except Exception:
@@ -1154,22 +1414,25 @@ async def create_project(request: Request):
         )
 
     description = str(body.get("description") or "").strip()
+    template_id = str(body.get("template_id") or "").strip() or None
 
     try:
-        row = await pool.fetchrow(
-            """
-            INSERT INTO projects (name, slug, description)
-            VALUES ($1, $2, $3)
-            RETURNING id, slug, name, description, version, created_at, updated_at
-            """,
+        result = await create_project_with_template(
+            pool,
             name,
             slug,
             description,
+            template_id=template_id,
+            user_id=user.get("user_id"),
         )
+        return result
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, 400)
     except asyncpg.UniqueViolationError:
         return JSONResponse({"error": f"project slug '{slug}' already exists"}, 409)
-
-    return row_dict(row)
+    except Exception as e:
+        logger.error("create_project: %s", e)
+        return JSONResponse({"error": "internal error"}, 500)
 
 
 @app.get("/api/projects/{slug}")
@@ -1307,6 +1570,27 @@ async def patch_section(slug: str, section: str, request: Request):
         return JSONResponse({"error": f"section '{section}' not found"}, 404)
 
     body = await request.json()
+
+    # Optimistic locking: if client sends expected_revision, verify it matches
+    expected_rev = body.get("expected_revision")
+    if expected_rev is not None:
+        current_rev = await pool.fetchval(
+            "SELECT COALESCE(MAX(revision_number), 0) FROM section_revisions WHERE section_id = $1",
+            sec["id"],
+        )
+        if current_rev != expected_rev:
+            return JSONResponse({
+                "error": {
+                    "code": "CONFLICT",
+                    "message": f"Section was updated (revision {expected_rev} → {current_rev}). Reload and retry.",
+                    "status": 409,
+                    "details": {
+                        "current_revision": current_rev,
+                        "expected_revision": expected_rev,
+                    },
+                }
+            }, 409)
+
     allowed = {"status", "tags", "title", "summary"}
     updates = {k: v for k, v in body.items() if k in allowed and v is not None}
     if not updates:
@@ -1327,11 +1611,19 @@ async def patch_section(slug: str, section: str, request: Request):
     await pool.execute(
         f"UPDATE sections SET {', '.join(set_parts)} WHERE id = $1", *params
     )
+    await broadcast_project_event(slug, "section_updated", {"section": section, "fields": list(updates.keys())})
     return {"ok": True, "updated": list(updates.keys())}
 
 
 @app.post("/api/projects/{slug}/sections/{section}/notes")
 async def update_notes(slug: str, section: str, request: Request):
+    from auth import require_project_access
+
+    access = await require_project_access(request, pool, slug, min_role="editor")
+    user, role = access
+    if isinstance(user, JSONResponse):
+        return user
+
     body = await request.json()
     notes = body.get("notes", "")
     proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
@@ -1362,6 +1654,7 @@ async def create_comment(slug: str, section: str, request: Request):
         VALUES ($1, $2, $3, $4, $5) RETURNING *
     """, sec_id, body["anchor_text"], body.get("anchor_prefix", ""),
         body.get("anchor_suffix", ""), body["body"])
+    await broadcast_project_event(slug, "comment_added", {"section": section, "comment_id": str(row["id"])})
     return row_dict(row)
 
 
@@ -1499,56 +1792,144 @@ async def get_token_stats(slug: str):
 
     await _backfill_missing_initial_revisions(pid)
 
-    totals = await pool.fetchrow("""
-        SELECT COUNT(*) AS operations,
-               COALESCE(SUM(full_doc_tokens), 0) AS total_full,
-               COALESCE(SUM(loaded_tokens), 0) AS total_loaded
-        FROM token_estimates WHERE project_id = $1
+    # Full document size (current)
+    full_doc = await pool.fetchrow("""
+        SELECT COALESCE(SUM(word_count), 0) AS total_words, COUNT(*) AS section_count
+        FROM sections WHERE project_id = $1
     """, pid)
+    full_doc_words = full_doc["total_words"]
+    full_doc_tokens = int(full_doc_words * 1.3)
 
+    # Check if new access log has data
+    has_access_log = await pool.fetchval(
+        "SELECT EXISTS(SELECT 1 FROM section_access_log WHERE project_id = $1)", pid
+    )
+
+    if has_access_log:
+        # --- Honest session-based calculation ---
+        sessions = await pool.fetch("""
+            WITH numbered AS (
+                SELECT *,
+                    CASE WHEN created_at - LAG(created_at) OVER (ORDER BY created_at)
+                         > interval '30 minutes'
+                         OR LAG(created_at) OVER (ORDER BY created_at) IS NULL
+                    THEN 1 ELSE 0 END AS new_session
+                FROM section_access_log WHERE project_id = $1
+            ),
+            sessioned AS (
+                SELECT *, SUM(new_session) OVER (ORDER BY created_at) AS session_id
+                FROM numbered
+            ),
+            session_coverage AS (
+                SELECT session_id, section_id,
+                    MAX(CASE access_level
+                        WHEN 'full' THEN 1.0 WHEN 'summary' THEN 0.10 WHEN 'snippet' THEN 0.15
+                    END) AS coverage
+                FROM sessioned GROUP BY session_id, section_id
+            ),
+            session_stats AS (
+                SELECT sc.session_id,
+                    $2::int AS full_doc_words,
+                    SUM(COALESCE(s.word_count, 0) * sc.coverage)::int AS unique_loaded_words,
+                    COUNT(DISTINCT sc.section_id) AS sections_touched
+                FROM session_coverage sc
+                LEFT JOIN sections s ON s.id = sc.section_id
+                GROUP BY sc.session_id
+            )
+            SELECT
+                session_id,
+                full_doc_words,
+                unique_loaded_words,
+                sections_touched,
+                CASE WHEN full_doc_words > 0
+                    THEN ROUND((1.0 - unique_loaded_words::numeric / full_doc_words) * 100, 1)
+                    ELSE 0 END AS savings_pct
+            FROM session_stats ORDER BY session_id
+        """, pid, full_doc_words)
+
+        total_ops = await pool.fetchval(
+            "SELECT COUNT(*) FROM section_access_log WHERE project_id = $1", pid
+        )
+        session_count = len(sessions)
+        avg_savings = round(sum(s["savings_pct"] for s in sessions) / session_count, 1) if session_count > 0 else 0
+        best_session = max((s["savings_pct"] for s in sessions), default=0)
+        avg_sections_per_session = round(sum(s["sections_touched"] for s in sessions) / session_count, 1) if session_count > 0 else 0
+        total_unique_loaded = sum(s["unique_loaded_words"] for s in sessions)
+        total_loaded_tokens = int(total_unique_loaded * 1.3)
+        total_saved_tokens = max(0, full_doc_tokens * session_count - total_loaded_tokens)
+
+        # Section heatmap — how often each section is accessed
+        heatmap = await pool.fetch("""
+            SELECT s.slug, s.title, COUNT(*) AS access_count,
+                MAX(CASE access_level WHEN 'full' THEN 1 WHEN 'summary' THEN 0 WHEN 'snippet' THEN 0 END) AS has_full_read
+            FROM section_access_log sal
+            JOIN sections s ON s.id = sal.section_id
+            WHERE sal.project_id = $1
+            GROUP BY s.slug, s.title
+            ORDER BY access_count DESC
+        """, pid)
+    else:
+        # --- Fallback to legacy token_estimates ---
+        totals = await pool.fetchrow("""
+            SELECT COUNT(*) AS operations,
+                   COALESCE(SUM(full_doc_tokens), 0) AS total_full,
+                   COALESCE(SUM(loaded_tokens), 0) AS total_loaded
+            FROM token_estimates WHERE project_id = $1
+        """, pid)
+        total_full_legacy = totals["total_full"]
+        total_loaded_legacy = totals["total_loaded"]
+        saved_legacy = total_full_legacy - total_loaded_legacy
+        avg_savings = round(saved_legacy / total_full_legacy * 100, 1) if total_full_legacy > 0 else 0
+        total_ops = totals["operations"]
+        session_count = 0
+        best_session = avg_savings
+        avg_sections_per_session = 0
+        total_loaded_tokens = total_loaded_legacy
+        total_saved_tokens = saved_legacy
+        heatmap = []
+
+    # By operation (from legacy table — still populated)
     by_op = await pool.fetch("""
-        SELECT operation,
-               COUNT(*) AS count,
+        SELECT operation, COUNT(*) AS count,
                SUM(full_doc_tokens) AS full_tokens,
                SUM(loaded_tokens) AS loaded_tokens
         FROM token_estimates WHERE project_id = $1
         GROUP BY operation ORDER BY count DESC
     """, pid)
 
+    # Daily trend
     daily = await pool.fetch("""
         SELECT d.day::date AS day,
                COALESCE(COUNT(t.id), 0) AS operations,
                COALESCE(SUM(t.full_doc_tokens - t.loaded_tokens), 0) AS tokens_saved
         FROM generate_series(current_date - 6, current_date, '1 day') AS d(day)
-        LEFT JOIN (
-            SELECT * FROM token_estimates WHERE project_id = $1
-        ) t ON t.created_at::date = d.day
+        LEFT JOIN (SELECT * FROM token_estimates WHERE project_id = $1) t
+            ON t.created_at::date = d.day
         GROUP BY d.day ORDER BY d.day ASC
     """, pid)
 
-    total_full = totals["total_full"]
-    total_loaded = totals["total_loaded"]
-    saved = total_full - total_loaded
-    pct = round(saved / total_full * 100, 1) if total_full > 0 else 0
-
-    project_stats = await pool.fetchrow(
-        """
+    project_stats = await pool.fetchrow("""
         SELECT
             (SELECT COUNT(*) FROM sections WHERE project_id = $1) AS section_count,
             (SELECT COUNT(*) FROM section_dependencies WHERE project_id = $1) AS dependency_count,
             (SELECT COUNT(*) FROM section_revisions r
-             JOIN sections s ON s.id = r.section_id
-             WHERE s.project_id = $1) AS revision_count
-        """,
-        pid,
-    )
+             JOIN sections s ON s.id = r.section_id WHERE s.project_id = $1) AS revision_count
+    """, pid)
+
+    activity_rows = await pool.fetch("""
+        SELECT tool_name, detail, created_at FROM mcp_activity
+        WHERE project_id = $1 ORDER BY created_at DESC LIMIT 50
+    """, pid)
 
     return {
-        "operations": totals["operations"],
-        "total_full_doc_tokens": total_full,
-        "total_loaded_tokens": total_loaded,
-        "total_saved_tokens": saved,
-        "savings_percent": pct,
+        "operations": total_ops,
+        "total_full_doc_tokens": full_doc_tokens,
+        "total_loaded_tokens": total_loaded_tokens,
+        "total_saved_tokens": total_saved_tokens,
+        "savings_percent": float(avg_savings),
+        "sessions": session_count,
+        "best_session_savings": float(best_session),
+        "avg_sections_per_session": float(avg_sections_per_session),
         "by_operation": [row_dict(r) for r in by_op],
         "daily_trend": [{"day": str(r["day"]), "operations": r["operations"],
                          "tokens_saved": r["tokens_saved"]} for r in daily],
@@ -1557,6 +1938,8 @@ async def get_token_stats(slug: str):
             "dependencies": project_stats["dependency_count"],
             "revisions": project_stats["revision_count"],
         },
+        "activity": [row_dict(r) for r in activity_rows],
+        "section_heatmap": [row_dict(r) for r in heatmap] if heatmap else [],
     }
 
 
@@ -1581,21 +1964,6 @@ async def chat_provider_status():
         "claude_cli": {"installed": cli_installed, "logged_in": cli_logged_in},
         "anthropic_api": {"configured": bool(api_key), "key_hint": f"...{api_key[-4:]}" if len(api_key) >= 4 else ""},
     }
-
-
-@app.put("/api/chat/api-key")
-async def set_chat_api_key(request: Request):
-    """Set Anthropic API key at runtime (not persisted to disk)."""
-    global _runtime_anthropic_api_key
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse({"error": "invalid JSON body"}, 400)
-    key = str(body.get("api_key") or "").strip()
-    if key and not key.startswith("sk-ant-"):
-        return JSONResponse({"error": "Invalid API key format (expected sk-ant-...)"}, 400)
-    _runtime_anthropic_api_key = key
-    return {"ok": True, "configured": bool(key), "key_hint": f"...{key[-4:]}" if len(key) >= 4 else ""}
 
 
 @app.post("/api/chat/cli-login")
@@ -2039,6 +2407,259 @@ async def export_project(slug: str):
         lines.append("\n---\n")
 
     return PlainTextResponse("\n".join(lines), media_type="text/plain")
+
+
+# --- Member management ---
+
+@app.get("/api/projects/{slug}/members")
+async def list_project_members(slug: str, request: Request):
+    """List all members of a project."""
+    from auth import require_project_access
+
+    access = await require_project_access(request, pool, slug, min_role="viewer")
+    user, role = access
+    if isinstance(user, JSONResponse):
+        return user
+
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    rows = await pool.fetch("""
+        SELECT pm.id, pm.user_id, pm.role, pm.created_at, pm.updated_at
+        FROM project_members pm
+        WHERE pm.project_id = $1
+        ORDER BY pm.created_at
+    """, proj["id"])
+    return [row_dict(r) for r in rows]
+
+
+@app.post("/api/projects/{slug}/members")
+async def add_project_member(slug: str, request: Request):
+    """Add a member to a project."""
+    from auth import require_project_access
+
+    access = await require_project_access(request, pool, slug, min_role="admin")
+    user, role = access
+    if isinstance(user, JSONResponse):
+        return user
+
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, 400)
+    user_id = body.get("user_id")
+    role = body.get("role", "viewer")
+    if not user_id:
+        return JSONResponse({"error": "user_id is required"}, 400)
+    valid_roles = {"owner", "admin", "editor", "commenter", "viewer"}
+    if role not in valid_roles:
+        return JSONResponse({"error": f"invalid role, must be one of {sorted(valid_roles)}"}, 400)
+    try:
+        row = await pool.fetchrow("""
+            INSERT INTO project_members (project_id, user_id, role)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role
+            RETURNING id, user_id, role, created_at
+        """, proj["id"], _uuid.UUID(user_id), role)
+        return row_dict(row)
+    except Exception:
+        return JSONResponse({"error": "internal error"}, 500)
+
+
+@app.delete("/api/projects/{slug}/members/{user_id}")
+async def remove_project_member(slug: str, user_id: str, request: Request):
+    """Remove a member from a project."""
+    from auth import require_project_access
+
+    access = await require_project_access(request, pool, slug, min_role="admin")
+    user, role = access
+    if isinstance(user, JSONResponse):
+        return user
+
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    result = await pool.execute(
+        "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2",
+        proj["id"], _uuid.UUID(user_id),
+    )
+    removed = result.split()[-1] != "0"
+    return {"removed": removed}
+
+
+# --- Audit events ---
+
+@app.get("/api/projects/{slug}/audit")
+async def list_audit_events(slug: str, limit: int = 50):
+    """List recent audit events for a project."""
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{slug}' not found"}, 404)
+    rows = await pool.fetch("""
+        SELECT id, user_id, action, resource, detail, created_at
+        FROM audit_events
+        WHERE project_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+    """, proj["id"], limit)
+    return [row_dict(r) for r in rows]
+
+
+# --- WebSocket token ---
+
+@app.post("/api/ws-token")
+async def create_ws_token(request: Request):
+    """Mint a short-lived HMAC token for WebSocket authentication."""
+    from auth import require_project_access
+    from ws import mint_ws_token
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, 400)
+
+    project_slug = body.get("project_slug")
+    if not project_slug:
+        return JSONResponse({"error": "project_slug required"}, 400)
+
+    # Verify project exists
+    proj = await pool.fetchrow("SELECT id FROM projects WHERE slug = $1", project_slug)
+    if not proj:
+        return JSONResponse({"error": f"project '{project_slug}' not found"}, 404)
+
+    access = await require_project_access(request, pool, project_slug, min_role="viewer")
+    user, role = access
+    if isinstance(user, JSONResponse):
+        return user
+
+    # user_id is None in pre-setup mode (anonymous), str otherwise
+    user_id = user.get("user_id") or "anonymous"
+    token = mint_ws_token(str(user_id), project_slug)
+    return {"token": token}
+
+
+# --- WebSocket handler ---
+
+# Connected clients: {project_slug: {user_id: WebSocket}}
+_ws_connections: dict[str, dict[str, WebSocket]] = {}
+_ws_redis_warned = [False]  # mutable holder — warn once, no global needed
+
+
+@app.websocket("/ws/projects/{slug}")
+async def websocket_project(websocket: WebSocket, slug: str):
+    """WebSocket endpoint for real-time project updates and presence."""
+    from auth import _is_auth_enforced, get_user_project_role
+    from ws import verify_ws_token
+
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001, reason="Missing token")
+        return
+
+    payload = verify_ws_token(token)
+    if not payload:
+        await websocket.close(code=4001, reason="Invalid or expired token")
+        return
+
+    if payload.get("project") != slug:
+        await websocket.close(code=4003, reason="Token project mismatch")
+        return
+
+    user_id = payload["sub"]
+    jti = payload.get("jti", "")
+
+    # jti uniqueness: Redis SET NX EX — reject replayed tokens
+    if redis_client and jti:
+        was_set = await redis_client.set(f"ws:jti:{jti}", "1", nx=True, ex=120)
+        if not was_set:
+            await websocket.close(code=4002, reason="Token already used")
+            return
+    elif not redis_client and jti:
+        if not _ws_redis_warned[0]:
+            logger.warning("Redis unavailable — WS token replay protection disabled")
+            _ws_redis_warned[0] = True
+
+    # Membership re-check: user may have been removed since token was minted
+    if await _is_auth_enforced(pool):
+        ws_role = await get_user_project_role(pool, user_id, slug)
+        if not ws_role:
+            await websocket.close(code=4003, reason="No project access")
+            return
+
+    await websocket.accept()
+
+    # Register connection
+    if slug not in _ws_connections:
+        _ws_connections[slug] = {}
+    _ws_connections[slug][user_id] = websocket
+
+    # Broadcast presence update
+    await _broadcast_presence(slug)
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Handle incoming messages (e.g., cursor position, typing indicator)
+            try:
+                msg = json.loads(data)
+                if msg.get("type") == "presence_update":
+                    # Update user's active section and re-broadcast
+                    await _broadcast_presence(slug)
+            except json.JSONDecodeError:
+                pass
+    except WebSocketDisconnect:
+        pass
+    finally:
+        # Unregister
+        if slug in _ws_connections:
+            _ws_connections[slug].pop(user_id, None)
+            if not _ws_connections[slug]:
+                del _ws_connections[slug]
+            else:
+                await _broadcast_presence(slug)
+
+
+async def _broadcast_presence(slug: str):
+    """Send presence list to all connected clients for a project."""
+    conns = _ws_connections.get(slug, {})
+    users = [{"id": uid, "name": uid} for uid in conns]
+    message = json.dumps({"type": "presence_update", "data": {"users": users}})
+    disconnected = []
+    for uid, ws in conns.items():
+        try:
+            await ws.send_text(message)
+        except Exception:
+            disconnected.append(uid)
+    for uid in disconnected:
+        conns.pop(uid, None)
+
+
+async def broadcast_project_event(slug: str, event_type: str, data: dict):
+    """Broadcast a real-time event to all connected project clients.
+
+    Sends via local WS connections AND Redis pub/sub for multi-process.
+    """
+    message = json.dumps({"type": event_type, "data": data})
+    # Local broadcast
+    conns = _ws_connections.get(slug, {})
+    if conns:
+        disconnected = []
+        for uid, ws in conns.items():
+            try:
+                await ws.send_text(message)
+            except Exception:
+                disconnected.append(uid)
+        for uid in disconnected:
+            conns.pop(uid, None)
+    # Redis pub/sub for multi-process
+    if redis_client:
+        try:
+            await redis_client.publish(f"project:{slug}", message)
+        except Exception as e:
+            logger.warning("Redis publish failed: %s", e)
 
 
 @app.get("/health")

@@ -6,11 +6,12 @@ PRD Forge is a self-hosted sectional PRD management system. It stores documents 
 
 ## Architecture
 
-Three Docker Compose services:
-- **PostgreSQL 16** (`postgres:16-alpine`) — 10 tables, 2 views, schema in `db/01_init.sql`, seed in `db/02_seed.sql` (SnapHabit sample, 12 sections), comments in `db/03_comments.sql`, replies+settings in `db/04_replies_and_settings.sql`, token stats in `db/05_token_stats.sql`, chat memory in `db/06_chat.sql`
-- **MCP Server** (`mcp_server/server.py`, ~850 lines) — FastMCP with 31 tools, asyncpg, stdio + HTTP transports
-- **Web UI** (`ui/app.py`, ~1637 lines) — FastAPI, dark theme with vertical nav rail, inline comments with replies, project settings, project creation/switching, force-directed dependency graph, and always-visible streaming Claude chat with selection-context injection
-- **Shared** (`shared/settings.py`) — Settings schema + validation, imported by both MCP server and UI
+Four Docker Compose services:
+- **PostgreSQL 16** (`postgres:16-alpine`) — 11 tables, 2 views, schema in `db/01_init.sql`, seed in `db/02_seed.sql` (SnapHabit sample, 12 sections), comments in `db/03_comments.sql`, replies+settings in `db/04_replies_and_settings.sql`, token stats in `db/05_token_stats.sql`, chat memory in `db/06_chat.sql`, MCP activity in `db/08_mcp_activity.sql`
+- **MCP Server** (`mcp_server/server.py`, ~1560 lines) — FastMCP with 31 tools, asyncpg, stdio + HTTP transports
+- **Python API** (`api/app.py`, ~1620 lines) — FastAPI backend, REST endpoints for projects/sections/chat/comments/token-stats
+- **Frontend** (`frontend/`, Next.js 15) — React 19, Tailwind v4, shadcn/ui. Proxies `/api/*` to Python API
+- **Shared** (`shared/settings.py`) — Settings schema + validation, imported by both MCP server and Python API
 
 ## Key Design Principles
 
@@ -30,27 +31,33 @@ Three Docker Compose services:
 
 | File | Purpose | ~Lines |
 |------|---------|--------|
-| `docker-compose.yml` | 3-service stack definition | 68 |
+| `docker-compose.yml` | 4-service stack definition | 75 |
 | `db/01_init.sql` | Schema DDL (tables, indexes, triggers, views) | 154 |
 | `db/02_seed.sql` | SnapHabit sample seed (12 sections, 12 deps) | 570 |
 | `db/05_token_stats.sql` | Token usage estimates table | 12 |
 | `db/06_chat.sql` | Chat tables migration (project chats + messages) | 41 |
+| `db/08_mcp_activity.sql` | MCP write activity tracking | 12 |
 | `docs/tool-reference.md` | MCP tool table and usage examples | 100 |
 | `docs/data-model.md` | ER diagram, dependency types, statuses, tags | 141 |
 | `docs/scaling.md` | Multi-user and scaling guidance | 90 |
 | `db/03_comments.sql` | Inline comments table (section_comments) | 20 |
 | `db/04_replies_and_settings.sql` | Comment replies + project settings tables | 40 |
 | `shared/settings.py` | Settings schema, defaults, validation (shared) | 30 |
-| `mcp_server/server.py` | MCP server with 31 tools | 1290 |
-| `ui/app.py` | FastAPI web UI with nav rail, replies, settings, project creation/switching, always-visible streaming chat (selection context), light/dark theme | 1637 |
-| `ui/static/fonts.css` | Vendored Google Fonts (@font-face declarations) | 200+ |
-| `ui/static/fonts/` | Vendored woff2 font files (Inter + JetBrains Mono) | — |
+| `mcp_server/server.py` | MCP server with 31 tools + activity tracking | 1560 |
+| `api/app.py` | FastAPI Python API (REST endpoints, chat, auth) | 1620 |
+| `api/auth.py` | Python auth middleware (session validation, role resolution) | 100 |
+| `api/auth_contract.py` | Better Auth table/column contract verification | 50 |
+| `api/errors.py` | Structured error responses (9 error codes) | 70 |
+| `api/ws.py` | WebSocket token minting + verification (HMAC-SHA256) | 80 |
+| `frontend/` | Next.js 15 frontend (React 19, Tailwind v4, shadcn/ui) | — |
+| `frontend/server.ts` | Custom Node server with WS proxy | 45 |
+| `frontend/prisma/schema.prisma` | Better Auth tables (7 models) | 110 |
 | `tests/conftest.py` | Test fixtures (db pool, cleanup, monkeypatch) | 64 |
 | `tests/test_mcp_tools.py` | MCP tool tests (53 tests) | 700+ |
 | `tests/test_ui_api.py` | UI endpoint tests (71 tests) | 940+ |
 | `tests/test_smoke.py` | CI smoke tests (MCP, DB, UI, seed data) | 85 |
 | `.github/workflows/test.yml` | CI: runs 124 tests on every PR to main | 50 |
-| `.github/workflows/build-and-push.yml` | CD: builds Docker images on tag push | 63 |
+| `.github/workflows/build-and-push.yml` | CD: builds 3 Docker images on tag push | 65 |
 
 ## MCP Tool Groups
 
@@ -76,16 +83,22 @@ Three Docker Compose services:
 
 ## Database Schema Quick Reference
 
-- **projects** — id, name, slug (unique), description, version, created_at, updated_at
-- **sections** — id, project_id, parent_section_id, slug, title, section_type, sort_order, status, content, summary, tags[], notes, word_count (generated), created_at, updated_at. UNIQUE(project_id, slug), UNIQUE(project_id, id)
-- **section_revisions** — id, section_id, revision_number, content, summary, change_description, created_at. UNIQUE(section_id, revision_number)
+- **projects** — id, name, slug (unique), description, version, organization_id, created_by, created_at, updated_at
+- **sections** — id, project_id, parent_section_id, slug, title, section_type, sort_order, status, content, summary, tags[], notes, word_count (generated), updated_by, created_at, updated_at. UNIQUE(project_id, slug), UNIQUE(project_id, id)
+- **section_revisions** — id, section_id, revision_number, content, summary, change_description, created_by, created_at. UNIQUE(section_id, revision_number)
 - **section_dependencies** — id, project_id, section_id, depends_on_id, dependency_type, description. Composite FKs enforce same-project. UNIQUE(section_id, depends_on_id)
-- **section_comments** — id, section_id, anchor_text, anchor_prefix, anchor_suffix, body, resolved, created_at, updated_at. Text anchoring uses prefix/suffix context (~40 chars each) for disambiguation.
-- **comment_replies** — id, comment_id (FK section_comments), author ('user'|'claude' CHECK), body, created_at. Threaded replies on comments.
-- **project_settings** — project_id (PK, FK projects), settings (JSONB, merged with defaults at read time), updated_at. Auto-trigger on update.
-- **token_estimates** — id, project_id (FK projects), operation, full_doc_tokens, loaded_tokens, created_at. Tracks context savings per read operation.
-- **project_chats** — id, project_id (unique FK projects), created_at, updated_at. One chat thread per project.
-- **chat_messages** — id, chat_id (FK project_chats), role ('user'|'assistant'|'system'|'tool' CHECK), content, metadata (JSONB), created_at.
+- **section_comments** — id, section_id, anchor_text, anchor_prefix, anchor_suffix, body, resolved, created_by, created_at, updated_at
+- **comment_replies** — id, comment_id (FK section_comments), author ('user'|'claude' CHECK), body, created_at
+- **project_settings** — project_id (PK, FK projects), settings (JSONB, merged with defaults at read time), updated_at
+- **token_estimates** — id, project_id (FK projects), operation, full_doc_tokens, loaded_tokens, created_at
+- **project_chats** — id, project_id, chat_type ('main'|section), section_id, created_by, created_at, updated_at. Multi-thread support.
+- **chat_messages** — id, chat_id (FK project_chats), role, content, metadata (JSONB), created_by, created_at
+- **mcp_activity** — id, project_id, tool_name, detail (JSONB), user_id, created_at. 12 mutating tools.
+- **project_members** — id, project_id, user_id, role (owner/admin/editor/commenter/viewer), created_at, updated_at
+- **audit_events** — id, project_id, user_id, action, resource, detail (JSONB), created_at
+- **password_reset_tokens** — id, user_id, token, expires_at, used, created_by, created_at
+- **prdforge_bootstrap** — id, setup_type (unique), completed, created_at
+- Better Auth tables: user, session, account, verification, organization, member, invitation (managed by Prisma)
 - **section_tree** (view) — sections + project_slug, parent_slug, parent_title, revision_count, dep_out_count, dep_in_count
 - **project_changelog** (view) — revisions joined with section and project slugs
 
@@ -112,8 +125,8 @@ Three Docker Compose services:
 3. Update `db/02_seed.sql` if the seed data format changed
 4. Update AGENTS.md schema reference
 
-**Adding a UI endpoint:**
-1. Add the route to `ui/app.py`
+**Adding an API endpoint:**
+1. Add the route to `api/app.py`
 2. Query the pool directly
 3. Add a test in `test_ui_api.py`
 
@@ -158,20 +171,13 @@ python -m venv .venv && .venv/bin/pip install -r tests/requirements.txt
 - **Chat is experimental** — disabled by default, gated behind `chat_enabled` project setting. All 4 chat endpoints return 403 when disabled. Enable in Settings → Experimental Features.
 - **Chat model selector** — `chat_model` setting (`sonnet`/`opus`/`haiku`) per-project, stored in `project_settings` JSONB. Passed to CLI as `--model` flag. For API provider, mapped via `API_MODEL_MAP` dict.
 - **Section status editor** — `PATCH /api/projects/{slug}/sections/{section}` supports updating status, tags, title, summary. Valid statuses: `draft`, `in_progress`, `review`, `approved`, `outdated`.
-- Web UI Claude chat supports two auth methods: Claude CLI OAuth login (credentials file) or Anthropic API key
+- Web UI Claude chat uses Anthropic API key for authentication
 - Chat tool execution uses an allowlist of MCP tool functions with project slug enforced server-side
 - Web UI chat can attach selected section text as context; backend stores this in `chat_messages.metadata.selection_context` and rehydrates it into future model history turns
 - Web UI chat can attach local files (text payloads); backend stores them in `chat_messages.metadata.attachments` and injects their content into future model history turns
-- Web UI chat provider defaults to `CHAT_PROVIDER` (`claude_cli` or `anthropic_api`) and can be overridden per project via settings (`chat_provider`). In Docker CLI mode, UI container needs `claude` binary plus mounted auth dir (`${HOME}/.claude` → `/root/.claude`)
+- Web UI chat provider can be overridden per project via settings (`chat_provider`)
 - Web UI chat renders selected context inline inside user message bubbles and triggers best-effort live refresh of project/section views after each completed assistant turn
 - Chat attachment limits are controlled via env vars: `CHAT_MAX_ATTACHMENTS`, `CHAT_ATTACHMENT_MAX_BYTES`, `CHAT_ATTACHMENT_MAX_CHARS`, `CHAT_ATTACHMENTS_MAX_TOTAL_CHARS`
-- **Claude CLI auth in Docker:** The CLI reads credentials from `/root/.claude/.credentials.json` (written by the OAuth login flow). Do NOT pass `ANTHROPIC_AUTH_TOKEN` as env var to the CLI subprocess — it causes 401 "OAuth authentication is currently not supported" because the CLI tries to use the token as a Bearer header against the Messages API, which rejects OAuth tokens. The credentials file approach works because the CLI uses its own internal auth flow.
-- **OAuth token format:** The callback page returns `AUTH_CODE#STATE` — split on `#` to get the code and state separately.
-- **OAuth tokens vs API keys:** OAuth tokens (`sk-ant-oat01-*`) do NOT work with the Anthropic Messages API. They only work through the Claude CLI which routes via a different backend. For direct API calls, a real API key (`sk-ant-api03-*`) is required.
-- **CLI default model:** The CLI's built-in default model may be deprecated. Always pass `--model sonnet` (or user-selected model) explicitly. Never rely on the CLI default.
-- **CLI `--allowedTools` required:** In non-interactive mode (`-p` flag), the CLI cannot prompt for tool approval. MCP tools will silently fail unless `--allowedTools` is passed with the explicit list of allowed tool names.
-- In `claude_cli` mode with manual permission settings (e.g. `acceptEdits`), permission requests are surfaced as dedicated `approval` chat events and persisted in `chat_messages.metadata.approval_requests`
-- Approval cards in Web UI chat support **Approve and continue** via `/api/projects/{slug}/chat/approve`, which replays the blocked user turn with `CLAUDE_CLI_APPROVAL_PERMISSION_MODE` (default `acceptEdits`; legacy `dontAsk` is normalized), passes a strict PRD-tool allowlist to Claude CLI, and marks the original approval message as resolved in metadata
 - `GET /api/projects/{slug}` now backfills missing initial revisions for sections; if a project has chat activity and zero dependencies, it backfills a linear references chain so Dependencies/Changelog tabs are populated for chat-generated projects
 - `GET /api/projects/{slug}/token-stats` now includes `project_stats` (`sections`, `dependencies`, `revisions`) in addition to token-savings metrics
 - `install.sh` now auto-selects a free host PostgreSQL port (`5432`, else first free in `5433-5500`) and exports `POSTGRES_PORT` so Docker + Claude Desktop config stay in sync

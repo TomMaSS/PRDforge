@@ -14,7 +14,9 @@ import asyncpg
 from mcp.server.fastmcp import FastMCP
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from shared.constants import VALID_SECTION_TYPES, SECTION_TYPE_ALIASES
 from shared.settings import DEFAULT_PROJECT_SETTINGS, SETTINGS_SCHEMA, validate_settings
+from shared.project_factory import create_project_with_template
 
 logger = logging.getLogger("prd_forge_mcp")
 logging.basicConfig(
@@ -27,21 +29,7 @@ SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 MAX_SLUG = 100
 VALID_STATUSES = {"draft", "in_progress", "review", "approved", "outdated"}
 VALID_DEP_TYPES = {"references", "implements", "blocks", "extends"}
-VALID_SECTION_TYPES = {
-    "overview", "tech_spec", "data_model", "api_spec", "ui_design",
-    "architecture", "deployment", "security", "testing", "timeline", "general",
-}
-SECTION_TYPE_ALIASES = {
-    "requirement": "general",
-    "requirements": "general",
-    "functional_requirements": "tech_spec",
-    "non_functional_requirements": "tech_spec",
-    "api": "api_spec",
-    "data": "data_model",
-    "ui": "ui_design",
-    "ux": "ui_design",
-    "roadmap": "timeline",
-}
+# VALID_SECTION_TYPES and SECTION_TYPE_ALIASES imported from shared.constants
 
 # --- Pool ---
 _pool: asyncpg.Pool | None = None
@@ -204,19 +192,22 @@ async def prd_list_projects() -> str:
 @mcp.tool(
     annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
 )
-async def prd_create_project(name: str, slug: str, description: str = "") -> str:
-    """Create a new PRD project. Slug must be unique, lowercase alphanumeric with hyphens."""
-    slug_err = validate_slug(slug)
-    if slug_err:
-        return err(slug_err)
+async def prd_create_project(name: str, slug: str, description: str = "", template: str = "") -> str:
+    """Create a new PRD project. Slug must be unique, lowercase alphanumeric with hyphens.
+    Optional template: 'blank', 'saas-mvp', 'mobile-app', 'api-design'."""
     try:
         pool = await get_pool()
-        row = await pool.fetchrow(
-            "INSERT INTO projects (name, slug, description) VALUES ($1, $2, $3) RETURNING *",
-            name, slug, description,
+        result = await create_project_with_template(
+            pool, name, slug, description,
+            template_id=template or None,
         )
-        logger.info("Created project: %s", slug)
-        return ok({"created": row_to_dict(row)})
+        logger.info("Created project: %s (template=%s)", slug, template or "none")
+        pid = await resolve_project_id(pool, slug)
+        if pid:
+            await _record_activity(pool, pid, "prd_create_project", {"slug": slug, "template": template or "none"})
+        return ok({"created": result})
+    except ValueError as e:
+        return err(str(e))
     except asyncpg.UniqueViolationError:
         return err(f"project with slug '{slug}' already exists")
     except Exception as e:
@@ -235,6 +226,7 @@ async def prd_delete_project(project: str) -> str:
         if not pid:
             return err(f"project '{project}' not found")
         count = await pool.fetchval("SELECT COUNT(*) FROM sections WHERE project_id = $1", pid)
+        await _record_activity(pool, pid, "prd_delete_project", {"slug": project, "sections": count})
         await pool.execute("DELETE FROM projects WHERE id = $1", pid)
         logger.info("Deleted project: %s (%d sections)", project, count)
         return ok({"deleted": project, "sections_removed": count})
@@ -298,7 +290,7 @@ async def prd_read_section(project: str, section: str) -> str:
         )
 
         depends_on = await pool.fetch("""
-            SELECT s.slug, s.title, s.summary, s.status, s.tags,
+            SELECT s.id, s.slug, s.title, s.summary, s.status, s.tags,
                    d.dependency_type AS dep_type, d.description AS dep_reason
             FROM section_dependencies d
             JOIN sections s ON s.id = d.depends_on_id
@@ -306,7 +298,7 @@ async def prd_read_section(project: str, section: str) -> str:
         """, sec_id)
 
         depended_by = await pool.fetch("""
-            SELECT s.slug, s.title, s.summary, s.status, s.tags,
+            SELECT s.id, s.slug, s.title, s.summary, s.status, s.tags,
                    d.dependency_type AS dep_type, d.description AS dep_reason
             FROM section_dependencies d
             JOIN sections s ON s.id = d.section_id
@@ -339,13 +331,20 @@ async def prd_read_section(project: str, section: str) -> str:
             cd["replies"] = replies_by_comment.get(str(c["id"]), [])
             comment_dicts.append(cd)
 
-        # Track token savings
+        # Track token savings — granular section-level access
         loaded_words = (sec["word_count"] or 0) + sum(
             len((d["summary"] or "").split()) for d in depends_on
         ) + sum(
             len((d["summary"] or "").split()) for d in depended_by
         )
         await _record_token_estimate(pool, pid, "read_section", loaded_words)
+        # New: section-level access log for honest dedup
+        accesses = [(sec_id, "full", sec["word_count"] or 0)]
+        for d in depends_on:
+            accesses.append((d["id"], "summary", len((d["summary"] or "").split())))
+        for d in depended_by:
+            accesses.append((d["id"], "summary", len((d["summary"] or "").split())))
+        await _record_section_access(pool, pid, "read_section", accesses)
 
         return ok({
             "section": row_to_dict(sec),
@@ -413,6 +412,7 @@ async def prd_create_section(
             "Initial section creation",
         )
 
+        await _record_activity(pool, pid, "prd_create_section", {"slug": slug, "title": title})
         created = row_to_dict(row)
         created.pop("id", None)
         logger.info("Created section: %s/%s", project, slug)
@@ -531,6 +531,7 @@ async def prd_update_section(
                         """, valid_cids, row["id"])
                         resolved_ids = [str(r["id"]) for r in resolved_rows]
 
+        await _record_activity(pool, pid, "prd_update_section", {"slug": section, "fields": list(fields.keys())})
         result = {"updated": row_to_dict(updated)}
         if revision_created is not None:
             result["revision_created"] = revision_created
@@ -566,6 +567,7 @@ async def prd_delete_section(project: str, section: str) -> str:
         )
         affected = [r["slug"] for r in depended_by]
 
+        await _record_activity(pool, pid, "prd_delete_section", {"slug": section})
         await pool.execute("DELETE FROM sections WHERE id = $1", sec["id"])
         result = {"deleted": section}
         if affected:
@@ -629,6 +631,7 @@ async def prd_move_section(
             f"UPDATE sections SET {', '.join(sets)} WHERE id = ${len(vals)}", *vals
         )
 
+        await _record_activity(pool, pid, "prd_move_section", {"slug": section})
         new_order = sort_order if sort_order is not None else sec["sort_order"]
         return ok({"moved": {"slug": section, "title": sec["title"], "sort_order": new_order}})
     except Exception as e:
@@ -667,6 +670,7 @@ async def prd_duplicate_section(
         """, pid, new_slug, title, src["section_type"], src["sort_order"] + 1,
             src["status"], src["content"], src["summary"], src["tags"], src["notes"])
 
+        await _record_activity(pool, pid, "prd_duplicate_section", {"from": section, "to": new_slug})
         logger.info("Duplicated section: %s/%s → %s", project, section, new_slug)
         return ok({"duplicated": row_to_dict(row), "from": section})
     except asyncpg.UniqueViolationError:
@@ -708,6 +712,8 @@ async def prd_add_dependency(
         """, section, depends_on, dependency_type, description, project)
         if not row:
             return err(f"sections '{section}' and/or '{depends_on}' not found in project '{project}'")
+        pid = await resolve_project_id(pool, project)
+        await _record_activity(pool, pid, "prd_add_dependency", {"from": section, "to": depends_on})
         logger.info("Added dependency: %s/%s → %s", project, section, depends_on)
         return ok({"dependency": {"from": section, "to": depends_on, "type": dependency_type}})
     except Exception as e:
@@ -732,6 +738,8 @@ async def prd_remove_dependency(project: str, section: str, depends_on: str) -> 
               AND depends_on_id = (SELECT id FROM sections WHERE project_id = $1 AND slug = $3)
         """, pid, section, depends_on)
         removed = result.split()[-1] != "0"
+        if removed:
+            await _record_activity(pool, pid, "prd_remove_dependency", {"from": section, "to": depends_on})
         return ok({"removed": removed, "from": section, "to": depends_on})
     except Exception as e:
         logger.error("prd_remove_dependency: %s", e)
@@ -802,6 +810,7 @@ async def prd_add_comment(
             INSERT INTO section_comments (section_id, anchor_text, anchor_prefix, anchor_suffix, body)
             VALUES ($1, $2, $3, $4, $5) RETURNING *
         """, sec["id"], anchor_text, anchor_prefix, anchor_suffix, body)
+        await _record_activity(pool, pid, "prd_add_comment", {"section": section})
         logger.info("Added comment on %s/%s: %.40s", project, section, anchor_text)
         return ok({"created": row_to_dict(row)})
     except Exception as e:
@@ -843,6 +852,8 @@ async def prd_delete_comment(project: str, section: str, comment_id: str) -> str
         if not resolved:
             return err(f"comment '{comment_id}' not found in {project}/{section}")
         cid, _ = resolved
+        pid = await resolve_project_id(pool, project)
+        await _record_activity(pool, pid, "prd_delete_comment", {"section": section})
         await pool.execute("DELETE FROM section_comments WHERE id = $1", cid)
         logger.info("Deleted comment %s on %s/%s", comment_id, project, section)
         return ok({"deleted": comment_id})
@@ -946,7 +957,7 @@ async def prd_get_overview(project: str) -> str:
             return err(f"project '{project}' not found")
 
         sections = await pool.fetch("""
-            SELECT slug, title, section_type, status, summary, tags, word_count,
+            SELECT id, slug, title, section_type, status, summary, tags, word_count,
                    parent_slug, updated_at
             FROM section_tree WHERE project_id = $1 ORDER BY sort_order
         """, proj["id"])
@@ -967,6 +978,8 @@ async def prd_get_overview(project: str) -> str:
         # Track token savings — overview loads summaries only
         loaded_words = sum(len((s["summary"] or "").split()) for s in sections)
         await _record_token_estimate(pool, proj["id"], "get_overview", loaded_words)
+        accesses = [(s["id"], "summary", len((s["summary"] or "").split())) for s in sections]
+        await _record_section_access(pool, proj["id"], "get_overview", accesses)
 
         return ok({
             "project": {
@@ -1004,16 +1017,18 @@ async def prd_search(project: str, query: str) -> str:
         if query.startswith("tag:"):
             tag = query[4:].strip()
             rows = await pool.fetch("""
-                SELECT slug, title, status, tags, summary
+                SELECT id, slug, title, status, tags, summary
                 FROM sections WHERE project_id = $1 AND $2 = ANY(tags)
                 ORDER BY sort_order
             """, pid, tag)
             loaded_words = sum(len((r["summary"] or "").split()) for r in rows)
             await _record_token_estimate(pool, pid, "search", loaded_words)
+            accesses = [(r["id"], "summary", len((r["summary"] or "").split())) for r in rows]
+            await _record_section_access(pool, pid, "search", accesses)
             return ok({"tag": tag, "results": [row_to_dict(r) for r in rows]})
         else:
             rows = await pool.fetch("""
-                SELECT slug, title, section_type, status, tags,
+                SELECT id, slug, title, section_type, status, tags,
                        ts_rank(to_tsvector('english',
                            coalesce(title,'') || ' ' || coalesce(content,'') || ' ' || coalesce(notes,'')),
                            plainto_tsquery('english', $2)) AS rank,
@@ -1027,6 +1042,8 @@ async def prd_search(project: str, query: str) -> str:
             """, pid, query)
             loaded_words = sum(len((r["snippet"] or "").split()) for r in rows)
             await _record_token_estimate(pool, pid, "search", loaded_words)
+            accesses = [(r["id"], "snippet", len((r["snippet"] or r.get("summary") or "").split())) for r in rows]
+            await _record_section_access(pool, pid, "search", accesses)
             return ok({"query": query, "results": [row_to_dict(r) for r in rows]})
     except Exception as e:
         logger.error("prd_search: %s", e)
@@ -1390,6 +1407,8 @@ async def prd_bulk_status(
             else:
                 updated.append(slug)
 
+        if updated:
+            await _record_activity(pool, pid, "prd_bulk_status", {"status": status, "count": len(updated)})
         return ok({"status": status, "updated": updated, "not_found": not_found})
     except Exception as e:
         logger.error("prd_bulk_status: %s", e)
@@ -1398,8 +1417,19 @@ async def prd_bulk_status(
 
 # --- Group 9: Token Stats ---
 
+async def _record_activity(pool, pid, tool_name: str, detail: dict | None = None):
+    """Record a write operation in mcp_activity for audit/dashboard."""
+    try:
+        await pool.execute(
+            "INSERT INTO mcp_activity (project_id, tool_name, detail) VALUES ($1, $2, $3::jsonb)",
+            pid, tool_name, json.dumps(detail or {}),
+        )
+    except Exception as e:
+        logger.warning("activity recording failed: %s", e)
+
+
 async def _record_token_estimate(pool, pid, operation: str, loaded_words: int):
-    """Record a token estimate for tracking context savings."""
+    """Legacy: record a token estimate (kept for backward compat)."""
     try:
         full_doc_words = await pool.fetchval(
             "SELECT COALESCE(SUM(word_count), 0) FROM sections WHERE project_id = $1", pid,
@@ -1413,6 +1443,24 @@ async def _record_token_estimate(pool, pid, operation: str, loaded_words: int):
         )
     except Exception as e:
         logger.warning("token estimate recording failed: %s", e)
+
+
+async def _record_section_access(
+    pool, pid, operation: str,
+    accesses: list[tuple],  # [(section_id, access_level, loaded_words), ...]
+):
+    """Record granular section-level access for honest token savings."""
+    if not accesses:
+        return
+    try:
+        await pool.executemany(
+            "INSERT INTO section_access_log "
+            "(project_id, operation, section_id, access_level, loaded_words) "
+            "VALUES ($1, $2, $3, $4, $5)",
+            [(pid, operation, sid, level, words) for sid, level, words in accesses],
+        )
+    except Exception as e:
+        logger.warning("section access recording failed: %s", e)
 
 
 @mcp.tool(

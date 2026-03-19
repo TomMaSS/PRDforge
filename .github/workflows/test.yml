@@ -36,8 +36,18 @@ jobs:
           python-version: '3.11'
           cache: pip
 
-      - name: Install dependencies
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Python dependencies
         run: pip install -r tests/requirements.txt
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          corepack enable
+          yarn install --immutable
 
       - name: Apply database migrations
         run: |
@@ -46,5 +56,12 @@ jobs:
             PGPASSWORD=prdforge psql -h localhost -U prdforge -d prdforge -f "$f"
           done
 
-      - name: Run tests
+      - name: Run Python tests
         run: python -m pytest tests/test_mcp_tools.py tests/test_ui_api.py -v --tb=short
+
+      - name: Run frontend checks
+        run: |
+          cd frontend
+          yarn lint
+          yarn typecheck
+          yarn test --run
