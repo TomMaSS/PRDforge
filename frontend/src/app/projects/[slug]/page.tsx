@@ -9,6 +9,9 @@ import {
   Clock,
   BarChart3,
   MessageSquare,
+  Eye,
+  Download,
+  FileDown,
 } from "lucide-react";
 import { TopBar } from "@/components/top-bar";
 import { SectionSidebar } from "@/components/section-sidebar";
@@ -20,7 +23,9 @@ import { EmptyState } from "@/components/empty-state";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { fetchProject, fetchSection, fetchTokenStats } from "@/lib/api";
 import type {
   ProjectDetailResponse,
@@ -67,6 +72,8 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [sectionLoading, setSectionLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("sections");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewContent, setPreviewContent] = useState("");
 
   const loadComments = useCallback(async () => {
     try {
@@ -498,14 +505,95 @@ export default function ProjectDetailPage() {
                 </TabsTrigger>
               </TabsList>
 
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => router.push(`/projects/${slug}/settings`)}
-              >
-                <Settings className="mr-1.5 h-4 w-4" />
-                Settings
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    const res = await fetch(`/api/projects/${slug}/export`);
+                    if (res.ok) {
+                      setPreviewContent(await res.text());
+                      setPreviewOpen(true);
+                    }
+                  }}
+                >
+                  <Eye className="mr-1.5 h-4 w-4" />
+                  Preview
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const a = document.createElement("a");
+                    a.href = `/api/projects/${slug}/export`;
+                    a.download = `${slug}.md`;
+                    a.click();
+                  }}
+                >
+                  <Download className="mr-1.5 h-4 w-4" />
+                  .md
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    const res = await fetch(`/api/projects/${slug}/export`);
+                    if (!res.ok) return;
+                    const md = await res.text();
+                    // Render markdown to HTML via the same preview path
+                    const tmp = document.createElement("div");
+                    tmp.style.display = "none";
+                    document.body.appendChild(tmp);
+                    // Use ReactDOM to render markdown
+                    const { createRoot } = await import("react-dom/client");
+                    const { MarkdownRenderer: MR } = await import("@/components/markdown-renderer");
+                    const { createElement: h } = await import("react");
+                    const root = createRoot(tmp);
+                    root.render(h(MR, { content: md }));
+                    // Wait for render
+                    await new Promise((r) => setTimeout(r, 300));
+                    const html = tmp.innerHTML;
+                    root.unmount();
+                    tmp.remove();
+                    const win = window.open("", "_blank");
+                    if (!win) return;
+                    const title = project?.project.name ?? "PRD";
+                    win.document.write(`<!DOCTYPE html>
+<html><head><title>${title}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.6; }
+  h1 { font-size: 1.8rem; border-bottom: 2px solid #e5e7eb; padding-bottom: 0.5rem; }
+  h2 { font-size: 1.4rem; margin-top: 2rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.3rem; }
+  h3 { font-size: 1.15rem; margin-top: 1.5rem; }
+  pre { background: #f3f4f6; border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: 0.85rem; }
+  code { background: #f3f4f6; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em; }
+  pre code { background: transparent; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.875rem; }
+  th, td { border: 1px solid #d1d5db; padding: 0.5rem 0.75rem; text-align: left; }
+  th { background: #f9fafb; font-weight: 600; }
+  blockquote { border-left: 3px solid #d1d5db; margin: 0.75rem 0; padding: 0.5rem 1rem; color: #6b7280; }
+  ul, ol { padding-left: 1.5rem; }
+  hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.5rem 0; }
+  @media print { body { margin: 0; padding: 20px; } }
+</style></head><body>${html}</body></html>`);
+                    win.document.close();
+                    setTimeout(() => { win.print(); }, 250);
+                  }}
+                >
+                  <FileDown className="mr-1.5 h-4 w-4" />
+                  .pdf
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => router.push(`/projects/${slug}/settings`)}
+                >
+                  <Settings className="mr-1.5 h-4 w-4" />
+                  Settings
+                </Button>
+              </div>
             </div>
 
             <TabsContent
@@ -678,6 +766,69 @@ export default function ProjectDetailPage() {
           />
         )}
       </div>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0">
+          <DialogHeader className="px-6 py-4 border-b shrink-0">
+            <div className="flex items-center justify-between pr-8">
+              <DialogTitle>{project?.project.name} — Full PRD</DialogTitle>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const a = document.createElement("a");
+                    a.href = `/api/projects/${slug}/export`;
+                    a.download = `${slug}.md`;
+                    a.click();
+                  }}
+                >
+                  <Download className="mr-1.5 h-4 w-4" />
+                  .md
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const printContent = document.getElementById("prd-print-area");
+                    if (!printContent) return;
+                    const win = window.open("", "_blank");
+                    if (!win) return;
+                    win.document.write(`<!DOCTYPE html>
+<html><head><title>${project?.project.name ?? "PRD"}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.6; }
+  h1 { font-size: 1.8rem; border-bottom: 2px solid #e5e7eb; padding-bottom: 0.5rem; }
+  h2 { font-size: 1.4rem; margin-top: 2rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.3rem; }
+  h3 { font-size: 1.15rem; margin-top: 1.5rem; }
+  pre { background: #f3f4f6; border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: 0.85rem; }
+  code { background: #f3f4f6; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em; }
+  pre code { background: transparent; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.875rem; }
+  th, td { border: 1px solid #d1d5db; padding: 0.5rem 0.75rem; text-align: left; }
+  th { background: #f9fafb; font-weight: 600; }
+  blockquote { border-left: 3px solid #d1d5db; margin: 0.75rem 0; padding: 0.5rem 1rem; color: #6b7280; }
+  ul, ol { padding-left: 1.5rem; }
+  hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.5rem 0; }
+  @media print { body { margin: 0; padding: 20px; } }
+</style></head><body>${printContent.innerHTML}</body></html>`);
+                    win.document.close();
+                    setTimeout(() => { win.print(); }, 250);
+                  }}
+                >
+                  <FileDown className="mr-1.5 h-4 w-4" />
+                  .pdf
+                </Button>
+              </div>
+            </div>
+          </DialogHeader>
+          <div id="prd-print-area" className="flex-1 overflow-y-auto px-8 py-6">
+            <MarkdownRenderer content={previewContent} />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

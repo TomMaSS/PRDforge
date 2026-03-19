@@ -262,7 +262,7 @@ import sys, json
 lines = sys.stdin.read().strip().split('\n')
 services = [json.loads(l) for l in lines if l.strip()]
 healthy = all(s.get('Health','') == 'healthy' or s.get('State','') == 'running' for s in services)
-sys.exit(0 if healthy and len(services) >= 4 else 1)
+sys.exit(0 if healthy and len(services) >= 5 else 1)
 " 2>/dev/null; then
     break
   fi
