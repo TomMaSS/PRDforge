@@ -62,10 +62,20 @@ const tooltipStyle = {
     background: "var(--card-bg)",
     border: "1px solid var(--border-color)",
     borderRadius: 8,
-    fontSize: 12,
+    fontSize: 13,
     color: "var(--fg)",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+    padding: "10px 14px",
   },
-  labelStyle: { color: "var(--fg-muted)" },
+  labelStyle: {
+    color: "var(--fg)",
+    fontWeight: 600,
+    marginBottom: 4,
+  },
+  itemStyle: {
+    color: "var(--fg)",
+    padding: "2px 0",
+  },
 };
 
 export function TokenStatsDashboard({ stats }: TokenStatsDashboardProps) {

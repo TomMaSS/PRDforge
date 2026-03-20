@@ -618,6 +618,7 @@ export default function ProjectDetailPage() {
                   onCommentAdded={() => {
                     if (activeSection)
                       handleSectionSelect(activeSection.section.slug);
+                    fetchProject(slug).then(setProject).catch(() => {});
                   }}
                   onTextSelected={handleSelectionContext}
                 />

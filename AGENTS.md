@@ -146,6 +146,41 @@ python -m venv .venv && .venv/bin/pip install -r tests/requirements.txt
 ```
 **Important:** Always use `uvx` or a virtual environment for running tests — never install packages into the global Python environment.
 
+## Git Branching Strategy
+
+Always work on **feature branches**, never commit directly to `main` or `multiuser`.
+
+### Branch naming
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| New feature | `feature/<short-name>` | `feature/pdf-export` |
+| Bug fix | `fix/<short-name>` | `fix/sidebar-status-dot` |
+| Documentation | `docs/<short-name>` | `docs/token-stats-metrics` |
+| Refactor | `refactor/<short-name>` | `refactor/auth-middleware` |
+
+### Workflow
+
+```bash
+# 1. Create branch from main
+git checkout -b feature/my-feature main
+
+# 2. Make changes, commit
+git add <files>
+git commit -m "Description of changes"
+
+# 3. Push and create PR targeting main
+git push -u origin feature/my-feature
+gh pr create --base main --title "Short title" --body "..."
+```
+
+### Rules
+
+- **One branch per logical change.** Don't mix unrelated features in one branch.
+- **Base branch:** Always `main`. All PRs target `main`.
+- **PR required:** All changes go through pull requests — no direct pushes to `main`.
+- **Delete after merge:** Feature branches are deleted after PR is merged.
+
 ## Critical Rules
 
 - **NEVER DROP THE DATABASE.** Do not run `DROP SCHEMA`, `DROP DATABASE`, `DROP TABLE` or any destructive SQL on the PRDforge PostgreSQL database. It contains user project data (sections, revisions, dependencies, comments) that cannot be recreated. For database restores, use `psql < backup.sql` directly — never drop-and-restore. Always ask the user before any destructive database operation.
