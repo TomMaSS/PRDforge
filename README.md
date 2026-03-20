@@ -4,7 +4,7 @@
 
 ![PRDforge Demo](demo.gif)
 
-PRD Forge splits your product requirements into independently addressable sections stored in PostgreSQL, then gives Claude surgical read/write access through 31 MCP tools. The result: edits that used to burn ~15,000 tokens now cost 500-2,000 — an **85-95% reduction** in context per operation.
+PRD Forge splits your product requirements into independently addressable sections stored in PostgreSQL, then gives Claude surgical read/write access through 34 MCP tools. The result: edits that used to burn ~15,000 tokens now cost 500-2,000 — an **85-95% reduction** in context per operation.
 
 ## The Problem
 
@@ -22,7 +22,7 @@ Each section stores both its full **content** and a short **summary** (1-3 sente
 
 ## Features
 
-- **31 MCP tools** — read, write, search, import/export, manage dependencies, track revisions, resolve comments
+- **34 MCP tools** — read, write, search, import/export, manage dependencies, track revisions, resolve comments
 - **Multi-user auth** — Better Auth (email/password + Google OAuth), 5 roles (owner/admin/editor/commenter/viewer), org-scoped access control
 - **Real-time collaboration** — WebSocket presence, live section updates across clients
 - **Project templates** — start with Blank, SaaS MVP, Mobile App, or API Design — pre-built section structures with starter content
@@ -52,7 +52,7 @@ Five Docker services:
 | Service | Stack | Port | Purpose |
 |---------|-------|------|---------|
 | **PostgreSQL 16** | 15+ tables, 2 views | 5432 | Source of truth |
-| **MCP Server** | FastMCP / Python | 8080 | 31 tools for Claude |
+| **MCP Server** | FastMCP / Python | 8080 | 34 tools for Claude |
 | **Python API** | FastAPI | 8088 | REST backend (projects, sections, chat, auth, audit) |
 | **Frontend** | Next.js 15, React 19, Tailwind v4, shadcn/ui, Better Auth | 3000 | Web UI |
 | **Redis 7** | — | 6379 | WebSocket token uniqueness, real-time pub/sub |
@@ -165,7 +165,7 @@ Chat is an experimental feature, disabled by default. Enable per-project in **Se
 
 ## MCP Tools Reference
 
-31 MCP tools across 10 groups: project management, section CRUD, dependencies, comments, context/search, revisions, import/export, batch operations, token stats, and settings.
+34 MCP tools across 10 groups: project management, section CRUD, dependencies, comments, context/search, revisions, import/export, batch operations, token stats, and settings.
 
 See **[docs/tool-reference.md](docs/tool-reference.md)** for the full tool table and usage examples.
 
@@ -205,7 +205,7 @@ PRDforge/
 ├── docker-compose.yml
 ├── frontend/            # Next.js 15 app (React 19, Tailwind v4, shadcn/ui)
 ├── api/                 # FastAPI backend (REST, chat, auth, WebSocket)
-├── mcp_server/          # FastMCP server (31 tools, stdio + HTTP)
+├── mcp_server/          # FastMCP server (34 tools, stdio + HTTP)
 ├── shared/              # Shared Python modules (settings, constants, templates)
 ├── db/                  # PostgreSQL schema migrations (13 files)
 ├── tests/               # pytest test suite
@@ -245,6 +245,10 @@ docker exec prdforge-postgres-1 pg_dump -U prdforge prdforge > backup.sql
 # Full reset (destroys all data)
 docker compose down -v && docker compose up -d
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and contribution guidelines.
 
 ## License
 
