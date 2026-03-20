@@ -7,7 +7,8 @@
 ## Medium Impact, Lower Effort – Quick Wins
 
 - [ ] CONTRIBUTING.md — how to run tests locally, code style expectations, PR process
-- [ ] GitHub repo metadata — description, topics/tags (`mcp`, `claude`, `prd`, `product-requirements`, `ai-tools`, `developer-tools`, `mcp-server`), website URL
+- [x] GitHub repo metadata — description, topics/tags (`mcp`, `claude`, `prd`, `product-requirements`, `ai-tools`, `developer-tools`, `mcp-server`, `nextjs`, `fastapi`, `docker`)
+- [ ] GitHub repo website URL — set homepage once public site is ready
 - [ ] `prd_diff_sections` tool — unified diff between two revisions of a section, avoids loading both and diffing manually
 - [ ] UI Playwright tests
 
@@ -29,7 +30,7 @@
 - [ ] Support `### ` (h3) splitting in import for nested section hierarchies
 - [ ] Add `prd_merge_sections` tool (combine two sections into one)
 - [ ] Add `prd_reorder_sections` tool (bulk sort_order update)
-- [ ] Export as PDF via headless browser
+- [x] ~~Export as PDF via headless browser~~ Export as PDF via browser print dialog
 - [ ] MCP auth for remote Claude clients (SSH tunnel or authenticated ingress)
 - [ ] move to tasks github projects
 - [ ] add Playwright preview autoupdate (CI for PR + agents.md for agent instructions on which sections to observe)
