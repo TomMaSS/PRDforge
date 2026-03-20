@@ -162,23 +162,23 @@ Always work on **feature branches**, never commit directly to `main` or `multius
 ### Workflow
 
 ```bash
-# 1. Create branch from the current base (usually multiuser or main)
-git checkout -b feature/my-feature multiuser
+# 1. Create branch from main
+git checkout -b feature/my-feature main
 
 # 2. Make changes, commit
 git add <files>
 git commit -m "Description of changes"
 
-# 3. Push and create PR
+# 3. Push and create PR targeting main
 git push -u origin feature/my-feature
-gh pr create --base multiuser --title "Short title" --body "..."
+gh pr create --base main --title "Short title" --body "..."
 ```
 
 ### Rules
 
 - **One branch per logical change.** Don't mix unrelated features in one branch.
-- **Base branch:** Use `multiuser` for active development. Use `main` only for release PRs.
-- **PR required:** All changes go through pull requests — no direct pushes to `main` or `multiuser`.
+- **Base branch:** Always `main`. All PRs target `main`.
+- **PR required:** All changes go through pull requests — no direct pushes to `main`.
 - **Delete after merge:** Feature branches are deleted after PR is merged.
 
 ## Critical Rules
