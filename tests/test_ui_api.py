@@ -1101,3 +1101,98 @@ class TestNotesRBAC:
             json={"notes": "test"},
         )
         assert resp.status_code == 404
+
+
+class TestMemberManagement:
+    """Member CRUD via Python API (session-authed, bypassed in test mode)."""
+
+    async def test_list_members_empty(self, ui_client):
+        resp = await ui_client.get("/api/projects/snaphabit/members")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_add_member(self, ui_client):
+        user_id = "00000000-0000-0000-0000-000000000001"
+        resp = await ui_client.post(
+            "/api/projects/snaphabit/members",
+            json={"user_id": user_id, "role": "editor"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["user_id"] == user_id
+        assert data["role"] == "editor"
+
+    async def test_list_members_returns_user_info_fields(self, ui_client):
+        """Verify the enriched member list includes name/email columns (may be null without user table)."""
+        user_id = "00000000-0000-0000-0000-000000000002"
+        await ui_client.post(
+            "/api/projects/snaphabit/members",
+            json={"user_id": user_id, "role": "viewer"},
+        )
+        resp = await ui_client.get("/api/projects/snaphabit/members")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) >= 1
+        member = next(m for m in data if m["user_id"] == user_id)
+        # name and email keys should be present (null when user table row missing)
+        assert "name" in member
+        assert "email" in member
+
+    async def test_change_role(self, ui_client):
+        user_id = "00000000-0000-0000-0000-000000000003"
+        await ui_client.post(
+            "/api/projects/snaphabit/members",
+            json={"user_id": user_id, "role": "viewer"},
+        )
+        # Upsert to change role
+        resp = await ui_client.post(
+            "/api/projects/snaphabit/members",
+            json={"user_id": user_id, "role": "admin"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["role"] == "admin"
+
+    async def test_remove_member(self, ui_client):
+        user_id = "00000000-0000-0000-0000-000000000004"
+        await ui_client.post(
+            "/api/projects/snaphabit/members",
+            json={"user_id": user_id, "role": "editor"},
+        )
+        resp = await ui_client.request(
+            "DELETE",
+            f"/api/projects/snaphabit/members/{user_id}",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["removed"] is True
+
+        # Verify removed
+        list_resp = await ui_client.get("/api/projects/snaphabit/members")
+        ids = [m["user_id"] for m in list_resp.json()]
+        assert user_id not in ids
+
+    async def test_remove_nonexistent_member(self, ui_client):
+        fake_id = "00000000-0000-0000-0000-000000000099"
+        resp = await ui_client.request(
+            "DELETE",
+            f"/api/projects/snaphabit/members/{fake_id}",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["removed"] is False
+
+    async def test_add_member_invalid_role(self, ui_client):
+        resp = await ui_client.post(
+            "/api/projects/snaphabit/members",
+            json={"user_id": "00000000-0000-0000-0000-000000000005", "role": "superadmin"},
+        )
+        assert resp.status_code == 400
+
+    async def test_add_member_missing_user_id(self, ui_client):
+        resp = await ui_client.post(
+            "/api/projects/snaphabit/members",
+            json={"role": "editor"},
+        )
+        assert resp.status_code == 400
+
+    async def test_members_project_not_found(self, ui_client):
+        resp = await ui_client.get("/api/projects/nonexistent/members")
+        assert resp.status_code == 404

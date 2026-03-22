@@ -1855,8 +1855,14 @@ async def get_token_stats(slug: str):
         best_session = max((s["savings_pct"] for s in sessions), default=0)
         avg_sections_per_session = round(sum(s["sections_touched"] for s in sessions) / session_count, 1) if session_count > 0 else 0
         total_unique_loaded = sum(s["unique_loaded_words"] for s in sessions)
-        total_loaded_tokens = int(total_unique_loaded * 1.3)
-        total_saved_tokens = max(0, full_doc_tokens * session_count - total_loaded_tokens)
+        # Use cumulative per-operation totals from token_estimates
+        cumulative = await pool.fetchrow("""
+            SELECT COALESCE(SUM(full_doc_tokens), 0) AS total_full,
+                   COALESCE(SUM(loaded_tokens), 0) AS total_loaded
+            FROM token_estimates WHERE project_id = $1
+        """, pid)
+        total_loaded_tokens = cumulative["total_loaded"]
+        total_saved_tokens = max(0, cumulative["total_full"] - total_loaded_tokens)
 
         # Section heatmap — how often each section is accessed
         heatmap = await pool.fetch("""
@@ -2425,8 +2431,10 @@ async def list_project_members(slug: str, request: Request):
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
     rows = await pool.fetch("""
-        SELECT pm.id, pm.user_id, pm.role, pm.created_at, pm.updated_at
+        SELECT pm.id, pm.user_id, pm.role, pm.created_at, pm.updated_at,
+               u.name, u.email
         FROM project_members pm
+        LEFT JOIN "user" u ON u.id = pm.user_id
         WHERE pm.project_id = $1
         ORDER BY pm.created_at
     """, proj["id"])

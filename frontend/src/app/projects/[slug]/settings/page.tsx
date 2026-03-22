@@ -22,9 +22,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { MemberManager } from "@/components/member-manager";
 
 const PROVIDERS = ["claude_cli", "anthropic_api"] as const;
 const MODELS = ["sonnet", "opus", "haiku"] as const;
+
+const ORG_SLUG = "default";
+
+interface Member {
+  id: string;
+  user_id: string;
+  role: string;
+  name?: string;
+  email?: string;
+  created_at: string;
+}
 
 interface Settings {
   claude_comment_replies: boolean;
@@ -54,15 +66,18 @@ export default function SettingsPage() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [showCodeInput, setShowCodeInput] = useState(false);
   const [loginCode, setLoginCode] = useState("");
+  const [members, setMembers] = useState<Member[]>([]);
 
   useEffect(() => {
     Promise.all([
       fetch(`/api/projects/${slug}/settings`).then((r) => r.json()),
       fetch("/api/chat/provider-status").then((r) => r.json()),
+      fetch(`/api/projects/${slug}/members`).then((r) => r.ok ? r.json() : []),
     ])
-      .then(([s, p]) => {
+      .then(([s, p, m]) => {
         setSettings(s);
         setProviderStatus(p);
+        setMembers(m);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -168,6 +183,52 @@ export default function SettingsPage() {
     } finally {
       setSavingKey(false);
     }
+  };
+
+  const refreshMembers = async () => {
+    const res = await fetch(`/api/projects/${slug}/members`);
+    if (res.ok) setMembers(await res.json());
+  };
+
+  const handleAddMember = async (userId: string, role: string) => {
+    const res = await fetch(`/api/projects/${slug}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, role }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      toast.error(data.error || "Failed to add member");
+      throw new Error("Failed to add member");
+    }
+    toast.success("Member added");
+    await refreshMembers();
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    const res = await fetch(`/api/projects/${slug}/members/${userId}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      toast.error("Failed to remove member");
+      return;
+    }
+    toast.success("Member removed");
+    await refreshMembers();
+  };
+
+  const handleChangeRole = async (userId: string, role: string) => {
+    const res = await fetch(`/api/projects/${slug}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, role }),
+    });
+    if (!res.ok) {
+      toast.error("Failed to change role");
+      return;
+    }
+    toast.success("Role updated");
+    await refreshMembers();
   };
 
   if (loading) {
@@ -431,6 +492,23 @@ export default function SettingsPage() {
                   </Button>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Members */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Members</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <MemberManager
+                members={members}
+                projectSlug={slug}
+                orgSlug={ORG_SLUG}
+                onAddMember={handleAddMember}
+                onRemoveMember={handleRemoveMember}
+                onChangeRole={handleChangeRole}
+              />
             </CardContent>
           </Card>
 

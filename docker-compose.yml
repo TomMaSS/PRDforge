@@ -95,7 +95,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-prdforge}:${POSTGRES_PASSWORD:-prdforge}@postgres:5432/${POSTGRES_DB:-prdforge}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-better-auth-secret-change-in-production}

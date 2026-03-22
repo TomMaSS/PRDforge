@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { requireOrgAdmin } from "@/lib/require-org-admin";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
+
+  const check = await requireOrgAdmin(slug);
+  if ("error" in check) return check.error;
+
   const body = await req.json();
   const { name, email, password, role } = body;
 
