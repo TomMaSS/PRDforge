@@ -174,23 +174,23 @@ See **[docs/tool-reference.md](docs/tool-reference.md)** for workflows and usage
 
 | Tool | Description |
 |:-----|:------------|
-| `prd_list_projects` | List all projects with section counts |
 | `prd_create_project` | Create project (optional template: `saas-mvp`, `mobile-app`, `api-design`) |
 | `prd_delete_project` | Delete project and all sections (cascades) |
+| `prd_list_projects` | List all projects with section counts |
 
 #### Sections (9)
 
 | Tool | Description |
 |:-----|:------------|
-| `prd_list_sections` | List sections — metadata only, no content |
-| `prd_read_section` | Read full content + dependency context summaries |
 | `prd_create_section` | Create new section with content, tags, type |
-| `prd_update_section` | Update fields, auto-revision on content change, atomic comment resolve |
 | `prd_delete_section` | Delete section (warns about dependencies) |
-| `prd_move_section` | Change sort_order or parent section |
-| `prd_reorder_sections` | Reorder sections by slug list |
 | `prd_duplicate_section` | Copy section with new slug |
+| `prd_list_sections` | List sections — metadata only, no content |
 | `prd_merge_sections` | Merge source into target (content, deps, comments, children) |
+| `prd_move_section` | Change sort_order or parent section |
+| `prd_read_section` | Read full content + dependency context summaries |
+| `prd_reorder_sections` | Reorder sections by slug list |
+| `prd_update_section` | Update fields, auto-revision on content change, atomic comment resolve |
 
 #### Dependencies (3)
 
@@ -204,19 +204,19 @@ See **[docs/tool-reference.md](docs/tool-reference.md)** for workflows and usage
 
 | Tool | Description |
 |:-----|:------------|
-| `prd_list_comments` | List all comments across project with section pointers |
 | `prd_add_comment` | Add inline comment anchored to selected text |
 | `prd_add_comment_reply` | Add a reply to an inline comment |
-| `prd_resolve_comment` | Resolve or reopen a comment |
 | `prd_delete_comment` | Delete a comment |
+| `prd_list_comments` | List all comments across project with section pointers |
+| `prd_resolve_comment` | Resolve or reopen a comment |
 
 #### Context & Search (4)
 
 | Tool | Description |
 |:-----|:------------|
+| `prd_get_changelog` | Recent revision history across all sections |
 | `prd_get_overview` | Project overview with section summaries (~10% of full doc) |
 | `prd_search` | Full-text or tag search across sections |
-| `prd_get_changelog` | Recent revision history across all sections |
 | `prd_token_stats` | Token savings statistics for the project |
 
 #### Revisions (3)
