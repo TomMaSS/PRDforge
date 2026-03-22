@@ -165,9 +165,48 @@ Chat is an experimental feature, disabled by default. Enable per-project in **Se
 
 ## MCP Tools Reference
 
-34 MCP tools across 10 groups: project management, section CRUD, dependencies, comments, context/search, revisions, import/export, batch operations, token stats, and settings.
+34 MCP tools across 10 groups. See **[docs/tool-reference.md](docs/tool-reference.md)** for workflows and usage examples.
 
-See **[docs/tool-reference.md](docs/tool-reference.md)** for the full tool table and usage examples.
+<details>
+<summary>All 34 MCP Tools</summary>
+
+| Tool | Group | Description |
+|:-----|:------|:------------|
+| `prd_list_projects` | Project | List all projects with section counts |
+| `prd_create_project` | Project | Create project (optional template: `saas-mvp`, `mobile-app`, `api-design`) |
+| `prd_delete_project` | Project | Delete project and all sections (cascades) |
+| `prd_list_sections` | Section | List sections — metadata only, no content |
+| `prd_read_section` | Section | Read full section content + dependency context summaries |
+| `prd_create_section` | Section | Create new section with content, tags, type |
+| `prd_update_section` | Section | Update fields, auto-revision on content change, atomic comment resolve |
+| `prd_delete_section` | Section | Delete section (warns about dependencies) |
+| `prd_move_section` | Section | Change sort_order or parent section |
+| `prd_reorder_sections` | Section | Reorder sections by slug list (unlisted keep relative order) |
+| `prd_duplicate_section` | Section | Copy section with new slug |
+| `prd_merge_sections` | Section | Merge source into target (content, deps, comments, children) |
+| `prd_add_dependency` | Deps | Add/update dependency link (idempotent) |
+| `prd_remove_dependency` | Deps | Remove a dependency link |
+| `prd_suggest_dependencies` | Deps | Auto-suggest deps via content similarity (TF-IDF) |
+| `prd_list_comments` | Comments | List all comments across project with section pointers |
+| `prd_add_comment` | Comments | Add inline comment anchored to selected text |
+| `prd_resolve_comment` | Comments | Resolve or reopen a comment |
+| `prd_delete_comment` | Comments | Delete a comment |
+| `prd_add_comment_reply` | Replies | Add a reply to an inline comment |
+| `prd_get_settings` | Settings | Get project settings (merged defaults + overrides) |
+| `prd_update_settings` | Settings | Update project settings |
+| `prd_get_overview` | Context | Project overview with section summaries (~10% of full doc) |
+| `prd_search` | Context | Full-text or tag search across sections |
+| `prd_get_changelog` | Context | Recent revision history across all sections |
+| `prd_token_stats` | Context | Token savings statistics for the project |
+| `prd_get_revisions` | Revision | List revision metadata for a section |
+| `prd_read_revision` | Revision | Read a specific historical revision's content |
+| `prd_rollback_section` | Revision | Rollback to a previous revision (current saved as backup) |
+| `prd_export_markdown` | Export | Export full document as assembled markdown |
+| `prd_import_markdown` | Import | Import from markdown (configurable heading level or delimiter) |
+| `prd_import_url` | Import | Import markdown from URL (SSRF-protected, Google Docs/GitHub support) |
+| `prd_bulk_status` | Batch | Update status for multiple sections at once |
+
+</details>
 
 ## Inline Comments
 
