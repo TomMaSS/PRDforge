@@ -84,7 +84,7 @@ services:
   frontend:
     image: ghcr.io/tommass/prdforge-frontend:${PRDFORGE_VERSION:-latest}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"  # use a reverse proxy for external access
     environment:
       NEXT_PUBLIC_API_URL: ""
     depends_on:

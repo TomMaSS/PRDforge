@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireOrgAdmin } from "@/lib/require-org-admin";
 import crypto from "crypto";
 
 const ENCRYPTION_SECRET = process.env.API_KEY_ENCRYPTION_SECRET || "dev-encryption-key-change-in-prod";
@@ -18,6 +19,10 @@ export async function PUT(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
+
+  const check = await requireOrgAdmin(slug);
+  if ("error" in check) return check.error;
+
   const body = await req.json();
   const apiKey = body.api_key?.trim();
 

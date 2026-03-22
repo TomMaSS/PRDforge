@@ -2431,8 +2431,10 @@ async def list_project_members(slug: str, request: Request):
     if not proj:
         return JSONResponse({"error": f"project '{slug}' not found"}, 404)
     rows = await pool.fetch("""
-        SELECT pm.id, pm.user_id, pm.role, pm.created_at, pm.updated_at
+        SELECT pm.id, pm.user_id, pm.role, pm.created_at, pm.updated_at,
+               u.name, u.email
         FROM project_members pm
+        LEFT JOIN "user" u ON u.id = pm.user_id
         WHERE pm.project_id = $1
         ORDER BY pm.created_at
     """, proj["id"])

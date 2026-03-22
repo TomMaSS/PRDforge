@@ -233,7 +233,12 @@ export default function ProjectDetailPage() {
         ]);
 
         while (true) {
-          const { done, value } = await reader.read();
+          // Timeout: if no data for 2 minutes, break out
+          const readPromise = reader.read();
+          const timeout = new Promise<{ done: true; value: undefined }>((resolve) =>
+            setTimeout(() => resolve({ done: true, value: undefined }), 120_000)
+          );
+          const { done, value } = await Promise.race([readPromise, timeout]);
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
@@ -279,6 +284,14 @@ export default function ProjectDetailPage() {
                 setStreamStatus("approval");
                 streamStatusRef.current = "approval";
                 // Will be handled after stream ends via metadata
+              } else if (eventType === "error") {
+                // Backend error — show to user
+                const errMsg = parsed.error || "Chat stream failed";
+                setChatMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId ? { ...m, content: `Error: ${errMsg}` } : m
+                  )
+                );
               } else if (eventType === "done" && parsed.message) {
                 // Final message — use the server's complete content + tool events
                 assistantContent = parsed.message.content;
@@ -400,6 +413,13 @@ export default function ProjectDetailPage() {
                 );
               } else if (eventType === "tool" && parsed.name) {
                 setStreamTools((prev) => [...prev, parsed.name]);
+              } else if (eventType === "error") {
+                const errMsg = parsed.error || "Chat stream failed";
+                setChatMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId ? { ...m, content: `Error: ${errMsg}` } : m
+                  )
+                );
               } else if (eventType === "done" && parsed.message) {
                 assistantContent = parsed.message.content;
                 const meta = parsed.message.metadata || {};

@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireOrgAdmin } from "@/lib/require-org-admin";
 import crypto from "crypto";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ) {
-  const { id: userId } = await params;
+  const { slug, id: userId } = await params;
+
+  const check = await requireOrgAdmin(slug);
+  if ("error" in check) return check.error;
 
   // Generate a secure reset token
   const token = crypto.randomBytes(32).toString("hex");

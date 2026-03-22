@@ -8,7 +8,7 @@
 
 ## Overview
 
-PRDforge exposes **32 MCP tools** for reading, writing, searching, and managing PRD sections. Tools are designed to minimize context window usage — prefer lightweight tools (`prd_list_sections`, `prd_get_overview`) for navigation and reserve full reads (`prd_read_section`) for editing.
+PRDforge exposes **34 MCP tools** for reading, writing, searching, and managing PRD sections. Tools are designed to minimize context window usage — prefer lightweight tools (`prd_list_sections`, `prd_get_overview`) for navigation and reserve full reads (`prd_read_section`) for editing.
 
 ## Table of Contents
 
@@ -32,7 +32,9 @@ PRDforge exposes **32 MCP tools** for reading, writing, searching, and managing 
 | `prd_update_section` | Section | Update fields, auto-revision on content change, atomic comment resolve | — |
 | `prd_delete_section` | Section | Delete section (warns about dependencies) | — |
 | `prd_move_section` | Section | Change sort_order or parent section | — |
+| `prd_reorder_sections` | Section | Reorder sections by slug list (unlisted keep relative order) | — |
 | `prd_duplicate_section` | Section | Copy section with new slug | — |
+| `prd_merge_sections` | Section | Merge source into target (content, deps, comments, children) | — |
 | `prd_add_dependency` | Deps | Add/update dependency link (idempotent) | — |
 | `prd_remove_dependency` | Deps | Remove a dependency link | — |
 | `prd_suggest_dependencies` | Deps | Auto-suggest deps via content similarity (TF-IDF) | 200 |
@@ -52,10 +54,11 @@ PRDforge exposes **32 MCP tools** for reading, writing, searching, and managing 
 | `prd_rollback_section` | Revision | Rollback to a previous revision (current saved as backup) | — |
 | `prd_export_markdown` | Export | Export full document as assembled markdown | 15000+ |
 | `prd_import_markdown` | Import | Import from markdown (configurable heading level or delimiter) | — |
+| `prd_import_url` | Import | Import markdown from URL (SSRF-protected, Google Docs/GitHub support) | — |
 | `prd_bulk_status` | Batch | Update status for multiple sections at once | — |
 
 **Read tools** (return data, consume tokens): 14 tools
-**Write tools** (mutate data, logged to `mcp_activity`): 12 tools
+**Write tools** (mutate data, logged to `mcp_activity`): 14 tools
 **Hybrid tools** (read + compute): 6 tools (search, suggest, stats, changelog, export, import)
 
 ---

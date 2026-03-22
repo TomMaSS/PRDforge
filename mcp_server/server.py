@@ -1,14 +1,20 @@
-"""PRD Forge MCP Server — 31 tools for sectional PRD management."""
+"""PRD Forge MCP Server — 34 tools for sectional PRD management."""
 
 import argparse
+import asyncio
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import sys
+import urllib.error
+import urllib.request
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
+from urllib.parse import urljoin, urlparse
 
 import asyncpg
 from mcp.server.fastmcp import FastMCP
@@ -640,6 +646,61 @@ async def prd_move_section(
 
 
 @mcp.tool(
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+)
+async def prd_reorder_sections(project: str, section_order: list[str]) -> str:
+    """
+    Reorder sections by providing an ordered list of slugs.
+    Listed slugs get sort_order 0, 1, 2, ... in the given order.
+    Unlisted sections keep their relative order, placed after the listed ones.
+    """
+    if not section_order:
+        return err("section_order must not be empty")
+    if len(section_order) != len(set(section_order)):
+        return err("section_order contains duplicate slugs")
+    try:
+        pool = await get_pool()
+        pid = await resolve_project_id(pool, project)
+        if not pid:
+            return err(f"project '{project}' not found")
+
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                rows = await conn.fetch(
+                    "SELECT id, slug, sort_order FROM sections "
+                    "WHERE project_id = $1 ORDER BY sort_order, created_at, id",
+                    pid,
+                )
+                slug_to_id = {r["slug"]: r["id"] for r in rows}
+
+                # Validate all provided slugs exist
+                for slug in section_order:
+                    if slug not in slug_to_id:
+                        raise ValueError(f"section '{slug}' not found in project '{project}'")
+
+                # Assign sort_order: listed first, then unlisted preserving relative order
+                ordered_slugs = list(section_order)
+                listed_set = set(section_order)
+                for r in rows:
+                    if r["slug"] not in listed_set:
+                        ordered_slugs.append(r["slug"])
+
+                for i, slug in enumerate(ordered_slugs):
+                    await conn.execute(
+                        "UPDATE sections SET sort_order = $1 WHERE id = $2",
+                        i, slug_to_id[slug],
+                    )
+
+        await _record_activity(pool, pid, "prd_reorder_sections", {"order": section_order})
+        return ok({"reordered": ordered_slugs})
+    except ValueError as e:
+        return err(str(e))
+    except Exception as e:
+        logger.error("prd_reorder_sections: %s", e)
+        return err(str(e))
+
+
+@mcp.tool(
     annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
 )
 async def prd_duplicate_section(
@@ -677,6 +738,130 @@ async def prd_duplicate_section(
         return err(f"section '{new_slug}' already exists in project '{project}'")
     except Exception as e:
         logger.error("prd_duplicate_section: %s", e)
+        return err(str(e))
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False}
+)
+async def prd_merge_sections(
+    project: str, source_section: str, target_section: str, separator: str = "\n\n---\n\n",
+) -> str:
+    """
+    Merge source section into target section. Appends source content to target,
+    transfers dependencies (deduped), comments, and children. Deletes source.
+    """
+    if source_section == target_section:
+        return err("cannot merge section with itself")
+    try:
+        pool = await get_pool()
+        pid = await resolve_project_id(pool, project)
+        if not pid:
+            return err(f"project '{project}' not found")
+
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                # Lock both rows in deterministic order (by id) to prevent deadlock
+                rows = await conn.fetch(
+                    "SELECT id, slug, content, summary, parent_section_id FROM sections "
+                    "WHERE project_id = $1 AND slug = ANY($2) ORDER BY id FOR UPDATE",
+                    pid, [source_section, target_section],
+                )
+                row_map = {r["slug"]: r for r in rows}
+                source_row = row_map.get(source_section)
+                target_row = row_map.get(target_section)
+                if not source_row or not target_row:
+                    raise ValueError("section not found")
+
+                source_id = source_row["id"]
+                target_id = target_row["id"]
+
+                # Reject if target is descendant of source (cycle prevention)
+                check_id = target_row["parent_section_id"]
+                visited = set()
+                for _ in range(100):
+                    if not check_id:
+                        break
+                    if check_id in visited:
+                        raise ValueError("corrupted parent hierarchy: cycle detected")
+                    if check_id == source_id:
+                        raise ValueError("cannot merge: target is a descendant of source")
+                    visited.add(check_id)
+                    parent = await conn.fetchrow(
+                        "SELECT parent_section_id, project_id FROM sections WHERE id = $1", check_id,
+                    )
+                    if not parent or parent["project_id"] != pid:
+                        raise ValueError("corrupted parent hierarchy: cross-project or missing")
+                    check_id = parent["parent_section_id"]
+
+                # --- WRITE ---
+
+                # 1. Save target content as new revision
+                max_rev = await conn.fetchval(
+                    "SELECT COALESCE(MAX(revision_number), 0) FROM section_revisions WHERE section_id = $1",
+                    target_id,
+                )
+                await conn.execute(
+                    "INSERT INTO section_revisions (section_id, revision_number, content, summary, change_description) "
+                    "VALUES ($1, $2, $3, $4, $5)",
+                    target_id, max_rev + 1, target_row["content"], target_row["summary"],
+                    f"Before merge with {source_section}",
+                )
+
+                # 2. Append source content to target
+                merged_content = target_row["content"] + separator + source_row["content"]
+                merged_summary = _auto_summary(merged_content)
+                await conn.execute(
+                    "UPDATE sections SET content = $1, summary = $2 WHERE id = $3",
+                    merged_content, merged_summary, target_id,
+                )
+
+                # 3. Transfer deps (INSERT...SELECT...ON CONFLICT DO NOTHING)
+                # Source's outgoing deps → target
+                await conn.execute(
+                    "INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description) "
+                    "SELECT project_id, $1, depends_on_id, dependency_type, description "
+                    "FROM section_dependencies WHERE section_id = $2 AND depends_on_id != $1 "
+                    "ON CONFLICT (section_id, depends_on_id) DO NOTHING",
+                    target_id, source_id,
+                )
+                # Source's incoming deps → target
+                await conn.execute(
+                    "INSERT INTO section_dependencies (project_id, section_id, depends_on_id, dependency_type, description) "
+                    "SELECT project_id, section_id, $1, dependency_type, description "
+                    "FROM section_dependencies WHERE depends_on_id = $2 AND section_id != $1 "
+                    "ON CONFLICT (section_id, depends_on_id) DO NOTHING",
+                    target_id, source_id,
+                )
+
+                # 4. Transfer comments
+                await conn.execute(
+                    "UPDATE section_comments SET section_id = $1 WHERE section_id = $2",
+                    target_id, source_id,
+                )
+
+                # 5. Reparent children (exclude target itself)
+                await conn.execute(
+                    "UPDATE sections SET parent_section_id = $1 "
+                    "WHERE parent_section_id = $2 AND id != $1",
+                    target_id, source_id,
+                )
+
+                # 6. Delete source (CASCADE cleans leftover deps/revisions)
+                await conn.execute("DELETE FROM sections WHERE id = $1", source_id)
+
+        await _record_activity(pool, pid, "prd_merge_sections", {
+            "source": source_section, "target": target_section,
+        })
+        logger.info("Merged section: %s/%s → %s", project, source_section, target_section)
+        return ok({
+            "merged": {"source": source_section, "target": target_section},
+            "revision_created": max_rev + 1,
+        })
+    except ValueError as e:
+        return err(str(e))
+    except Exception as e:
+        logger.error("prd_merge_sections: %s", e)
         return err(str(e))
 
 
@@ -1241,6 +1426,20 @@ def _auto_summary(content: str) -> str:
     return text
 
 
+def _dedupe_slug(slug: str, used: dict[str, int]) -> str:
+    """Return a unique slug, appending -2, -3, etc. if needed."""
+    if slug not in used:
+        used[slug] = 1
+        return slug
+    used[slug] += 1
+    deduped = f"{slug}-{used[slug]}"
+    while deduped in used:
+        used[slug] += 1
+        deduped = f"{slug}-{used[slug]}"
+    used[deduped] = 1
+    return deduped
+
+
 def _parse_markdown_sections(
     markdown: str,
     heading_level: int = 2,
@@ -1251,24 +1450,61 @@ def _parse_markdown_sections(
 
     prefix = "#" * heading_level + " "
     too_deep = "#" * (heading_level + 1) + " "
+
+    # Parent tracking only for heading_level >= 3
+    parent_prefix = ("#" * (heading_level - 1) + " ") if heading_level >= 3 else None
+    used_slugs: dict[str, int] = {} if heading_level >= 3 else None
+
     sections: list[dict] = []
     current = None
+    current_parent: str | None = None  # slug of current parent section
     in_fence = False
+
+    def _flush():
+        nonlocal current
+        if current:
+            current["content"] = "\n".join(current["lines"]).strip()
+            del current["lines"]
+            sections.append(current)
+            current = None
+
     for line in markdown.split("\n"):
         stripped = line.strip()
         if stripped.startswith("```") or stripped.startswith("~~~"):
             in_fence = not in_fence
-        if not in_fence and line.startswith(prefix) and not line.startswith(too_deep):
-            if current:
-                current["content"] = "\n".join(current["lines"]).strip()
-                sections.append(current)
+
+        if in_fence:
+            if current is not None:
+                current["lines"].append(line)
+            continue
+
+        # Check for parent heading (one level above) — only when heading_level >= 3
+        if parent_prefix and line.startswith(parent_prefix) and not line.startswith(prefix):
+            _flush()
+            title = line[len(parent_prefix):].strip()
+            slug = _dedupe_slug(_slugify(title), used_slugs)
+            current_parent = slug
+            current = {"title": title, "slug": slug, "lines": [], "parent_slug": None}
+            continue
+
+        # Check for target heading level
+        if line.startswith(prefix) and not line.startswith(too_deep):
+            _flush()
             title = line[len(prefix):].strip()
-            current = {"title": title, "slug": _slugify(title), "lines": []}
-        elif current is not None:
+            if used_slugs is not None:
+                slug = _dedupe_slug(_slugify(title), used_slugs)
+            else:
+                slug = _slugify(title)
+            sec = {"title": title, "slug": slug, "lines": []}
+            if heading_level >= 3:
+                sec["parent_slug"] = current_parent
+            current = sec
+            continue
+
+        if current is not None:
             current["lines"].append(line)
-    if current:
-        current["content"] = "\n".join(current["lines"]).strip()
-        sections.append(current)
+
+    _flush()
     return sections
 
 
@@ -1326,20 +1562,33 @@ async def prd_import_markdown(
             return err(f"no sections found — expected {'#' * heading_level} headings")
 
         results = []
-        for i, sec in enumerate(parsed):
-            slug = sec["slug"]
-            content = sec["content"]
-            summary = _auto_summary(content)
+        created_ids: dict[str, uuid.UUID] = {}  # slug → section id (for parent lookup)
 
-            existing = await pool.fetchrow(
-                "SELECT id, content, summary FROM sections WHERE project_id = $1 AND slug = $2",
-                pid, slug,
-            )
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                for i, sec in enumerate(parsed):
+                    slug = sec["slug"]
+                    content = sec["content"]
+                    summary = _auto_summary(content)
+                    parent_slug = sec.get("parent_slug")
 
-            if existing:
-                if replace_existing:
-                    async with pool.acquire() as conn:
-                        async with conn.transaction():
+                    # Resolve parent_section_id
+                    parent_id = None
+                    if parent_slug:
+                        parent_id = created_ids.get(parent_slug)
+                        if not parent_id:
+                            parent_id = await conn.fetchval(
+                                "SELECT id FROM sections WHERE project_id = $1 AND slug = $2",
+                                pid, parent_slug,
+                            )
+
+                    existing = await conn.fetchrow(
+                        "SELECT id, content, summary FROM sections WHERE project_id = $1 AND slug = $2",
+                        pid, slug,
+                    )
+
+                    if existing:
+                        if replace_existing:
                             row = await conn.fetchrow(
                                 "SELECT id, content, summary FROM sections "
                                 "WHERE project_id = $1 AND slug = $2 FOR UPDATE",
@@ -1355,26 +1604,145 @@ async def prd_import_markdown(
                                 row["id"], max_rev + 1, row["content"], row["summary"], "Before markdown import",
                             )
                             await conn.execute(
-                                "UPDATE sections SET content = $1, summary = $2 WHERE id = $3",
-                                content, summary, row["id"],
+                                "UPDATE sections SET content = $1, summary = $2, parent_section_id = $3 WHERE id = $4",
+                                content, summary, parent_id, row["id"],
                             )
-                    wc = len(content.split())
-                    results.append({"slug": slug, "action": "updated", "words": wc})
-                else:
-                    results.append({"slug": slug, "action": "skipped (exists)", "words": 0})
-            else:
-                await pool.execute("""
-                    INSERT INTO sections (project_id, slug, title, sort_order, content, summary)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                """, pid, slug, sec["title"], i, content, summary)
-                wc = len(content.split())
-                results.append({"slug": slug, "action": "created", "words": wc})
+                            created_ids[slug] = row["id"]
+                            wc = len(content.split())
+                            results.append({"slug": slug, "action": "updated", "words": wc})
+                        else:
+                            created_ids[slug] = existing["id"]
+                            results.append({"slug": slug, "action": "skipped (exists)", "words": 0})
+                    else:
+                        row = await conn.fetchrow("""
+                            INSERT INTO sections (project_id, slug, title, sort_order, content, summary, parent_section_id)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                            RETURNING id
+                        """, pid, slug, sec["title"], i, content, summary, parent_id)
+                        created_ids[slug] = row["id"]
+                        wc = len(content.split())
+                        results.append({"slug": slug, "action": "created", "words": wc})
 
         imported = sum(1 for r in results if r["action"] != "skipped (exists)")
         logger.info("Imported %d sections into %s", imported, project)
         return ok({"imported": imported, "sections": results})
+    except ValueError as e:
+        return err(str(e))
     except Exception as e:
         logger.error("prd_import_markdown: %s", e)
+        return err(str(e))
+
+
+# --- SSRF-safe URL fetching ---
+
+def _validate_url_sync(url: str) -> str | None:
+    """Validate URL is safe to fetch (no SSRF). Returns error message or None."""
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        return "invalid URL: no hostname"
+
+    try:
+        infos = socket.getaddrinfo(hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return f"DNS resolution failed for {hostname}"
+
+    for info in infos:
+        addr = info[4][0]
+        ip = ipaddress.ip_address(addr)
+        if not ip.is_global:
+            return f"blocked: {hostname} resolves to non-public IP {addr}"
+    return None
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+
+
+def _blocking_fetch_one(opener, url: str) -> bytes | tuple[int, str]:
+    """Sync single-hop: validate URL (with DNS), fetch, return bytes or (code, location)."""
+    err_msg = _validate_url_sync(url)
+    if err_msg:
+        raise ValueError(err_msg)
+    req = urllib.request.Request(url, headers={"User-Agent": "PRDforge/1.0"})
+    try:
+        resp = opener.open(req, timeout=30)
+        data = resp.read(1_048_577)
+        if len(data) > 1_048_576:
+            raise ValueError("response exceeds 1 MB limit")
+        return data
+    except urllib.error.HTTPError as e:
+        if e.code in (301, 302, 303, 307, 308):
+            loc = e.headers.get("Location")
+            if not loc:
+                raise ValueError(f"redirect {e.code} without Location header")
+            return (e.code, loc)
+        raise
+
+
+async def _safe_fetch(url: str, max_redirects: int = 5) -> bytes:
+    """Fetch URL with SSRF validation on every hop, all I/O in worker thread."""
+    opener = urllib.request.build_opener(_NoRedirectHandler)
+    current = url
+    for _ in range(max_redirects + 1):
+        result = await asyncio.to_thread(_blocking_fetch_one, opener, current)
+        if isinstance(result, bytes):
+            return result
+        _, loc = result
+        current = urljoin(current, loc)
+    raise ValueError(f"too many redirects (>{max_redirects})")
+
+
+def _rewrite_url(url: str) -> str:
+    """Rewrite known URLs to raw/export formats."""
+    parsed = urlparse(url)
+
+    # Google Docs → export as plain text
+    if parsed.hostname and "docs.google.com" in parsed.hostname and "/document/d/" in parsed.path:
+        doc_id_match = re.search(r"/document/d/([a-zA-Z0-9_-]+)", parsed.path)
+        if doc_id_match:
+            return f"https://docs.google.com/document/d/{doc_id_match.group(1)}/export?format=txt"
+
+    # GitHub blob → raw
+    if parsed.hostname == "github.com" and "/blob/" in parsed.path:
+        raw_path = parsed.path.replace("/blob/", "/", 1)
+        return f"https://raw.githubusercontent.com{raw_path}"
+
+    return url
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True}
+)
+async def prd_import_url(
+    project: str, url: str, heading_level: int = 2, replace_existing: bool = False,
+) -> str:
+    """
+    Import markdown from a URL into a project. Fetches the URL content and
+    delegates to prd_import_markdown. Supports Google Docs and GitHub URLs
+    (auto-rewrites to raw/export format). SSRF-protected.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return err(f"unsupported URL scheme '{parsed.scheme}', must be http or https")
+
+    try:
+        rewritten = _rewrite_url(url)
+        data = await _safe_fetch(rewritten)
+        markdown = data.decode("utf-8", errors="replace")
+
+        result = await prd_import_markdown(
+            project=project,
+            markdown=markdown,
+            replace_existing=replace_existing,
+            heading_level=heading_level,
+        )
+        return result
+    except ValueError as e:
+        return err(str(e))
+    except Exception as e:
+        logger.error("prd_import_url: %s", e)
         return err(str(e))
 
 
