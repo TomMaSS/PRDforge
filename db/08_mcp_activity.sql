@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS mcp_activity (
     project_id  UUID REFERENCES projects(id) ON DELETE CASCADE,
     tool_name   TEXT NOT NULL,
     detail      JSONB DEFAULT '{}',
+    user_id     TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
