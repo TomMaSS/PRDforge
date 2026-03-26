@@ -278,6 +278,53 @@ else
   ok "Docker services running"
 fi
 
+# ─── Create admin account (first-time only) ─────────────────────────
+FRONTEND_URL="http://localhost:3000"
+SETUP_URL="$FRONTEND_URL/api/auth/setup"
+
+# Check if bootstrap was already done (query DB directly, no side-effects)
+setup_needed=true
+bootstrap_done=$(docker compose -f "$COMPOSE_FILE" exec -T postgres \
+  psql -U "${POSTGRES_USER:-prdforge}" -d "${POSTGRES_DB:-prdforge}" -tAc \
+  "SELECT EXISTS(SELECT 1 FROM prdforge_bootstrap WHERE setup_type='first_user' AND completed=true)" 2>/dev/null || echo "f")
+
+if [ "$bootstrap_done" = "t" ]; then
+  ok "Admin account already exists — skipping"
+  setup_needed=false
+fi
+
+if [ "$setup_needed" = true ]; then
+  echo ""
+  info "Create your admin account:"
+  read -rp "  Name: " ADMIN_NAME
+  read -rp "  Email: " ADMIN_EMAIL
+  while true; do
+    read -rsp "  Password: " ADMIN_PASSWORD
+    echo ""
+    read -rsp "  Confirm password: " ADMIN_PASSWORD2
+    echo ""
+    if [ "$ADMIN_PASSWORD" = "$ADMIN_PASSWORD2" ]; then
+      break
+    fi
+    warn "Passwords don't match. Try again."
+  done
+
+  # Escape JSON values
+  SETUP_JSON=$(python3 -c "import json,sys; print(json.dumps({'name':sys.argv[1],'email':sys.argv[2],'password':sys.argv[3]}))" "$ADMIN_NAME" "$ADMIN_EMAIL" "$ADMIN_PASSWORD")
+
+  response=$(curl -sf -X POST "$SETUP_URL" \
+    -H "Content-Type: application/json" \
+    -d "$SETUP_JSON" 2>&1) || true
+
+  if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('success') else 1)" 2>/dev/null; then
+    ok "Admin account created ($ADMIN_EMAIL)"
+  else
+    error_msg=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','unknown error'))" 2>/dev/null || echo "$response")
+    warn "Could not create admin account: $error_msg"
+    warn "You can create it manually at $FRONTEND_URL"
+  fi
+fi
+
 # ─── Configure MCP ──────────────────────────────────────────────────
 echo ""
 if [ "$MODE" = "code" ]; then
