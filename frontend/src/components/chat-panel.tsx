@@ -93,8 +93,8 @@ export function ChatPanel({
   };
 
   return (
-    <div className="flex w-[40%] min-w-[480px] max-w-[700px] shrink-0 flex-col border-l bg-card">
-      <div className="border-b px-4 py-3">
+    <div className="flex w-[40%] min-w-[480px] max-w-[700px] shrink-0 flex-col border-l border-[var(--border-color)] bg-[var(--surface)]">
+      <div className="border-b border-[var(--border-color)] px-4 py-3">
         <h3 className="text-sm font-semibold">Chat</h3>
       </div>
 
@@ -115,10 +115,10 @@ export function ChatPanel({
             )}
             <div
               className={cn(
-                "rounded-lg px-3 py-2 text-sm",
+                "rounded-xl px-3.5 py-2.5 text-sm",
                 msg.role === "user"
-                  ? "bg-primary text-primary-foreground ml-6"
-                  : "bg-muted mr-6"
+                  ? "bg-[var(--accent)] text-white ml-8"
+                  : "bg-[var(--card-bg)] border border-[var(--border-color)] mr-8"
               )}
             >
               {msg.role === "user" ? (
@@ -200,14 +200,14 @@ export function ChatPanel({
       )}
 
       {/* Input */}
-      <div className="border-t p-3 space-y-2">
+      <div className="border-t border-[var(--border-color)] p-3 space-y-2 bg-[var(--card-bg)]">
         <Textarea
           placeholder="Type a message..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={2}
-          className="resize-none text-sm"
+          className="resize-none text-sm bg-[var(--surface-dim)] border-[var(--border-color)]"
         />
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

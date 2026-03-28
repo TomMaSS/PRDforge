@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  Settings,
   FileText,
   GitBranch,
   Clock,
@@ -24,7 +23,7 @@ import { LoadingOverlay } from "@/components/loading-overlay";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { fetchProject, fetchSection, fetchTokenStats } from "@/lib/api";
 import type {
@@ -463,7 +462,7 @@ export default function ProjectDetailPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col">
-        <TopBar />
+        <TopBar variant="project" activeTab="sections" projectSlug={slug} />
         <LoadingOverlay />
       </div>
     );
@@ -472,7 +471,7 @@ export default function ProjectDetailPage() {
   if (!project) {
     return (
       <div className="min-h-screen flex flex-col">
-        <TopBar />
+        <TopBar variant="project" activeTab="sections" projectSlug={slug} />
         <EmptyState
           icon={FileText}
           title="Project not found"
@@ -489,46 +488,27 @@ export default function ProjectDetailPage() {
   return (
     <div className="flex h-screen flex-col">
       <TopBar
+        variant="project"
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
         projectName={project.project.name}
         projectSlug={slug}
-        sectionTitle={activeSection?.section.title}
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden bg-[var(--bg)]">
         <div className="flex flex-1 flex-col overflow-hidden">
           <Tabs
             value={activeTab}
             onValueChange={handleTabChange}
             className="flex flex-1 flex-col overflow-hidden"
           >
-            <div className="flex items-center justify-between border-b px-6 py-2">
-              <TabsList>
-                <TabsTrigger value="sections">
-                  <FileText className="mr-1.5 h-4 w-4" />
-                  Sections
-                </TabsTrigger>
-                <TabsTrigger value="comments">
-                  <MessageSquare className="mr-1.5 h-4 w-4" />
-                  Comments
-                </TabsTrigger>
-                <TabsTrigger value="dependencies">
-                  <GitBranch className="mr-1.5 h-4 w-4" />
-                  Dependencies
-                </TabsTrigger>
-                <TabsTrigger value="changelog">
-                  <Clock className="mr-1.5 h-4 w-4" />
-                  Changelog
-                </TabsTrigger>
-                <TabsTrigger value="stats">
-                  <BarChart3 className="mr-1.5 h-4 w-4" />
-                  Stats
-                </TabsTrigger>
-              </TabsList>
-
-              <div className="flex items-center gap-1">
+            {/* Action bar — compact export controls */}
+            <div className="flex items-center justify-end border-b border-[var(--border-color)] px-4 py-1.5 bg-[var(--card-bg)]">
+              <div className="flex items-center gap-0.5">
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
                   onClick={async () => {
                     const res = await fetch(`/api/projects/${slug}/export`);
                     if (res.ok) {
@@ -537,12 +517,13 @@ export default function ProjectDetailPage() {
                     }
                   }}
                 >
-                  <Eye className="mr-1.5 h-4 w-4" />
+                  <Eye className="mr-1 h-3.5 w-3.5" />
                   Preview
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
                   onClick={() => {
                     const a = document.createElement("a");
                     a.href = `/api/projects/${slug}/export`;
@@ -550,12 +531,13 @@ export default function ProjectDetailPage() {
                     a.click();
                   }}
                 >
-                  <Download className="mr-1.5 h-4 w-4" />
+                  <Download className="mr-1 h-3.5 w-3.5" />
                   .md
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
                   onClick={async () => {
                     const res = await fetch(`/api/projects/${slug}/export`);
                     if (!res.ok) return;
@@ -602,16 +584,8 @@ export default function ProjectDetailPage() {
                     setTimeout(() => { win.print(); }, 250);
                   }}
                 >
-                  <FileDown className="mr-1.5 h-4 w-4" />
+                  <FileDown className="mr-1 h-3.5 w-3.5" />
                   .pdf
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => router.push(`/projects/${slug}/settings`)}
-                >
-                  <Settings className="mr-1.5 h-4 w-4" />
-                  Settings
                 </Button>
               </div>
             </div>
@@ -624,6 +598,10 @@ export default function ProjectDetailPage() {
                 sections={project.sections}
                 activeSlug={activeSection?.section.slug}
                 onSelect={handleSectionSelect}
+                projectName={project.project.name}
+                projectVersion={project.project.version}
+                projectSlug={slug}
+                onNavigateSettings={() => router.push(`/projects/${slug}/settings`)}
               />
 
               {sectionLoading ? (
@@ -655,7 +633,7 @@ export default function ProjectDetailPage() {
             {/* Comments tab — all comments across project */}
             <TabsContent
               value="comments"
-              className="flex-1 overflow-auto p-6 mt-0"
+              className="flex-1 overflow-auto p-6 mt-0 bg-[var(--bg)]"
             >
               {allComments.length === 0 ? (
                 <EmptyState
@@ -668,7 +646,7 @@ export default function ProjectDetailPage() {
                   {allComments.map((c) => (
                     <div
                       key={c.id}
-                      className={`rounded-lg border p-4 ${c.resolved ? "opacity-50" : ""}`}
+                      className={`rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] p-4 transition-colors hover:border-[var(--accent)]/20 ${c.resolved ? "opacity-50" : ""}`}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <button
@@ -705,7 +683,7 @@ export default function ProjectDetailPage() {
 
             <TabsContent
               value="dependencies"
-              className="flex-1 overflow-auto p-6 mt-0"
+              className="flex-1 overflow-auto p-6 mt-0 bg-[var(--bg)]"
             >
               <DependencyGraph
                 dependencies={project.dependencies}
@@ -716,7 +694,7 @@ export default function ProjectDetailPage() {
 
             <TabsContent
               value="changelog"
-              className="flex-1 overflow-auto p-6 mt-0"
+              className="flex-1 overflow-auto p-6 mt-0 bg-[var(--bg)]"
             >
               {project.changelog.length === 0 ? (
                 <EmptyState
@@ -729,7 +707,7 @@ export default function ProjectDetailPage() {
                   {project.changelog.map((entry, i) => (
                     <div
                       key={i}
-                      className="flex items-start gap-3 rounded-lg border p-3"
+                      className="flex items-start gap-3 rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] p-4"
                     >
                       <div className="flex-1">
                         <p className="text-sm">
@@ -757,11 +735,11 @@ export default function ProjectDetailPage() {
 
             <TabsContent
               value="stats"
-              className="flex-1 overflow-auto p-6 mt-0"
+              className="flex-1 overflow-auto p-6 mt-0 bg-[var(--bg)]"
             >
               {tokenStats ? (
                 <div className="max-w-4xl mx-auto">
-                  <TokenStatsDashboard stats={tokenStats} />
+                  <TokenStatsDashboard stats={tokenStats} projectSlug={slug} />
                 </div>
               ) : (
                 <LoadingOverlay />

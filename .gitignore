@@ -16,3 +16,8 @@ demo.webm
 docs/prd
 backup
 design
+
+# Playwright
+frontend/playwright-report/
+frontend/test-results/
+frontend/e2e/.auth/

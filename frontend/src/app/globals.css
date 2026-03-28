@@ -15,7 +15,7 @@
   --color-muted-foreground: var(--fg-muted);
   --color-accent: var(--surface);
   --color-accent-foreground: var(--fg);
-  --color-destructive: #ef4444;
+  --color-destructive: var(--error);
   --color-destructive-foreground: #ffffff;
   --color-border: var(--border-color);
   --color-input: var(--border-color);
@@ -26,32 +26,104 @@
   --radius-xl: 12px;
 }
 
-/* Light theme */
+/* ============================================
+   Light theme — Stitch-derived
+   ============================================ */
 :root {
-  --bg: #f5f5f7;
-  --fg: #1a1a2e;
-  --fg-muted: #6b6b80;
+  --bg: #f9f9fb;
+  --fg: #1a1c1d;
+  --fg-muted: #464554;
   --card-bg: #ffffff;
-  --surface: #e8e8ec;
-  --border-color: #d1d1d9;
-  --accent: #6366f1;
-  --accent-hover: #5558e6;
+  --surface: #eeeef0;
+  --surface-dim: #dcdce0;
+  --surface-high: #e8e8ea;
+  --surface-highest: #e2e2e4;
+  --border-color: rgba(144, 143, 160, 0.2);
+  --accent: #4648d4;
+  --accent-light: #6063ee;
+  --accent-hover: #3638b8;
+  --error: #ba1a1a;
   --notes-bg: #fef9e7;
   --notes-border: #e6d88a;
+
+  /* Status colors */
+  --status-success: #34a853;
+  --status-info: #4285f4;
+  --status-warning: #fbbf24;
+  --status-error: #ba1a1a;
+
+  /* Code block colors */
+  --code-bg: #f6f8fa;
+  --code-fg: #24292f;
+  --code-border: #d0d7de;
+
+  /* Reading surface */
+  --reading-bg: #ffffff;
+  --reading-fg: #374151;
+  --reading-heading: #111827;
+
+  /* Markdown content colors */
+  --md-heading: #111827;
+  --md-heading-sub: #1f2937;
+  --md-body: #374151;
+  --md-bold: #111827;
+  --md-muted: #6b7280;
+  --md-code: #7c3aed;
+
+  /* Table colors */
+  --table-border: #e5e7eb;
+  --table-header-bg: #f9fafb;
+  --table-hover: #f3f4f6;
 }
 
-/* Dark theme */
+/* ============================================
+   Dark theme — Stitch-derived (primary)
+   ============================================ */
 .dark {
-  --bg: #2b2d35;
-  --fg: #e2e4ea;
-  --fg-muted: #9496ad;
-  --card-bg: #33353f;
-  --surface: #3d3f4a;
-  --border-color: #44465a;
-  --accent: #6366f1;
+  --bg: #131416;
+  --fg: #d4d2d8;
+  --fg-muted: #9490a0;
+  --card-bg: #1c1d21;
+  --surface: #191a1e;
+  --surface-dim: #141517;
+  --surface-high: #252629;
+  --surface-highest: #2f3034;
+  --border-color: rgba(144, 143, 160, 0.12);
+  --accent: #4648d4;
+  --accent-light: #6063ee;
   --accent-hover: #5558e6;
-  --notes-bg: #3a3520;
-  --notes-border: #665e3a;
+  --error: #ff5449;
+  --notes-bg: #2a2720;
+  --notes-border: #504a35;
+
+  /* Reading surface — elevated, warm, easy on eyes */
+  --reading-bg: #22232a;
+  --reading-fg: #d1d5db;
+  --reading-heading: #f3f4f6;
+
+  /* Markdown content colors — WCAG AA compliant */
+  --md-heading: #f3f4f6;
+  --md-heading-sub: #e5e7eb;
+  --md-body: #d1d5db;
+  --md-bold: #f9fafb;
+  --md-muted: #9ca3af;
+  --md-code: #c4b5fd;
+
+  /* Table colors — soft but visible */
+  --table-border: rgba(255, 255, 255, 0.08);
+  --table-header-bg: rgba(255, 255, 255, 0.06);
+  --table-hover: rgba(255, 255, 255, 0.04);
+
+  /* Status colors */
+  --status-success: #4ade80;
+  --status-info: #60a5fa;
+  --status-warning: #fbbf24;
+  --status-error: #ffb4ab;
+
+  /* Code block colors */
+  --code-bg: #161b22;
+  --code-fg: #c9d1d9;
+  --code-border: #30363d;
 }
 
 * {
@@ -63,71 +135,83 @@ body {
   color: var(--fg);
 }
 
-/* Markdown styles */
+/* ============================================
+   Utility classes — Stitch design patterns
+   ============================================ */
+
+/* Glassmorphism panel */
+.glass-panel {
+  backdrop-filter: blur(12px);
+  background-color: rgba(42, 42, 44, 0.8);
+}
+.dark .glass-panel {
+  background-color: rgba(42, 42, 44, 0.8);
+}
+:root .glass-panel {
+  background-color: rgba(255, 255, 255, 0.8);
+}
+
+/* Etched input style */
+.input-etched {
+  background-color: var(--surface-dim);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+.input-etched:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* Non-functional UI element marker */
+.ui-placeholder {
+  border: 2px dashed var(--accent);
+  opacity: 0.5;
+  position: relative;
+  pointer-events: none;
+}
+.ui-placeholder::after {
+  content: 'Coming soon';
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  opacity: 0.8;
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============================================
+   Markdown styles
+   ============================================ */
+/* Markdown base — component handles most styling via custom renderers */
 .markdown-body {
-  color: var(--fg);
-  line-height: 1.7;
+  color: var(--md-body);
+  line-height: 1.75;
+  font-size: 0.9375rem;
+  font-family: 'Inter', system-ui, sans-serif;
 }
-.markdown-body h1 { font-size: 1.5rem; font-weight: 700; margin: 1.5rem 0 0.75rem; }
-.markdown-body h2 { font-size: 1.25rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
-.markdown-body h3 { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 0.5rem; }
-.markdown-body p { margin: 0.5rem 0; }
-.markdown-body ul { list-style: disc; padding-left: 1.5rem; margin: 0.5rem 0; }
-.markdown-body ol { list-style: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
-.markdown-body li { margin: 0.25rem 0; }
-.markdown-body strong { font-weight: 600; }
-.markdown-body em { font-style: italic; }
-.markdown-body a { color: var(--accent); text-decoration: underline; }
-.markdown-body blockquote {
-  border-left: 3px solid var(--border-color);
-  padding-left: 1rem;
-  margin: 0.75rem 0;
-  color: var(--fg-muted);
-  font-style: italic;
-}
-.markdown-body code {
-  background: var(--surface);
-  padding: 0.15em 0.4em;
-  border-radius: 4px;
-  font-size: 0.875em;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-}
-.markdown-body pre {
-  background: var(--surface);
-  border-radius: 8px;
-  padding: 1rem;
-  overflow-x: auto;
-  margin: 0.75rem 0;
-}
-.markdown-body pre code {
+
+/* highlight.js overrides */
+.markdown-body pre code.hljs {
   background: transparent;
   padding: 0;
-  font-size: 0.85em;
-  line-height: 1.5;
 }
-.markdown-body table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 0.75rem 0;
-  font-size: 0.875rem;
+.markdown-body pre code:not(.hljs) {
+  color: var(--code-fg);
 }
-.markdown-body th {
-  border: 1px solid var(--border-color);
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  font-weight: 600;
-  background: var(--surface);
-}
-.markdown-body td {
-  border: 1px solid var(--border-color);
-  padding: 0.5rem 0.75rem;
-}
-.markdown-body hr {
-  border: none;
-  border-top: 1px solid var(--border-color);
-  margin: 1.5rem 0;
-}
-.markdown-body img {
-  max-width: 100%;
-  border-radius: 8px;
+
+/* Monospace font for all code */
+.markdown-body code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
