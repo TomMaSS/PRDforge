@@ -320,9 +320,19 @@ function GraphView({ dependencies, sections, onSectionClick }: {
 export function DependencyGraph({ dependencies = [], sections = [], className, onSectionClick }: DependencyGraphProps) {
   const [view, setView] = useState<"graph" | "list">("graph");
 
+  const blockingCount = dependencies.filter((d) => (d.dependency_type || d.type) === "blocks").length;
+  const typeBreakdown = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const d of dependencies) {
+      const t = d.dependency_type || d.type || "references";
+      counts[t] = (counts[t] || 0) + 1;
+    }
+    return counts;
+  }, [dependencies]);
+
   if (!sections.length || !dependencies.length) {
     return (
-      <div className={cn("flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center", className)}>
+      <div className={cn("flex flex-col items-center justify-center rounded-xl border border-dashed border-[var(--border-color)] p-12 text-center", className)}>
         <h3 className="text-sm font-semibold">No Dependencies</h3>
         <p className="mt-1 text-xs text-muted-foreground">Add dependencies between sections to see them here.</p>
       </div>
@@ -330,16 +340,16 @@ export function DependencyGraph({ dependencies = [], sections = [], className, o
   }
 
   return (
-    <div className={cn("max-w-5xl mx-auto space-y-4", className)}>
+    <div className={cn("max-w-5xl mx-auto space-y-5", className)}>
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold">Dependencies</h3>
-          <p className="text-xs text-muted-foreground">
+          <h3 className="text-lg font-bold tracking-tight">Dependencies</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
             {dependencies.length} edges · {sections.length} sections
             {view === "graph" && " — click node for details, drag to rearrange"}
           </p>
         </div>
-        <div className="flex items-center gap-1 rounded-lg border p-1">
+        <div className="flex items-center gap-1 rounded-lg border border-[var(--border-color)] bg-[var(--surface-dim)] p-1">
           <Button variant={view === "graph" ? "secondary" : "ghost"} size="sm" className="h-7 px-2.5" onClick={() => setView("graph")}>
             <Network className="h-3.5 w-3.5 mr-1" />Graph
           </Button>
@@ -351,10 +361,10 @@ export function DependencyGraph({ dependencies = [], sections = [], className, o
 
       {view === "graph" && (
         <div>
-          <div className="flex gap-4 mb-2">
+          <div className="flex gap-4 mb-3">
             {Object.entries(DEP_TYPE_COLORS).map(([type, color]) => (
               <div key={type} className="flex items-center gap-1.5">
-                <div className="w-6 h-0.5" style={{ background: color }} />
+                <div className="w-6 h-0.5 rounded-full" style={{ background: color }} />
                 <span className="text-xs text-muted-foreground capitalize">{type}</span>
               </div>
             ))}
@@ -364,6 +374,31 @@ export function DependencyGraph({ dependencies = [], sections = [], className, o
       )}
 
       {view === "list" && <ListView dependencies={dependencies} sections={sections} onSectionClick={onSectionClick} />}
+
+      {/* Stats cards below graph */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] p-4 text-center">
+          <div className="text-2xl font-bold tabular-nums text-[var(--status-error)]">{String(blockingCount).padStart(2, "0")}</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-1">Blocking</div>
+        </div>
+        <div className="rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] p-4 text-center">
+          <div className="text-2xl font-bold tabular-nums">{dependencies.length}</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-1">Total Deps</div>
+        </div>
+        {Object.entries(typeBreakdown).slice(0, 2).map(([type, count]) => (
+          <div key={type} className="rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] p-4 text-center">
+            <div className="text-2xl font-bold tabular-nums" style={{ color: DEP_TYPE_COLORS[type] || "var(--fg)" }}>{count}</div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-1 capitalize">{type}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Non-functional action button */}
+      <div className="flex justify-end">
+        <button className="ui-placeholder flex items-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-[var(--accent)]/20" disabled>
+          Run Propagation Analysis
+        </button>
+      </div>
     </div>
   );
 }

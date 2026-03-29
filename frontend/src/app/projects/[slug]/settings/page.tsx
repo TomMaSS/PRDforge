@@ -3,17 +3,21 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  ArrowLeft,
   Check,
   CheckCircle2,
   XCircle,
   ExternalLink,
+  ChevronRight,
+  Settings,
+  User,
+  Key,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/top-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+// Card components no longer used — Stitch uses raw sections
 import {
   Select,
   SelectContent,
@@ -234,7 +238,7 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col">
-        <TopBar projectName={slug} sectionTitle="Settings" />
+        <TopBar variant="settings" projectName={slug} projectSlug={slug} onBack={() => router.push(`/projects/${slug}`)} />
         <LoadingOverlay />
       </div>
     );
@@ -243,7 +247,7 @@ export default function SettingsPage() {
   if (!settings) {
     return (
       <div className="min-h-screen flex flex-col">
-        <TopBar projectName={slug} sectionTitle="Settings" />
+        <TopBar variant="settings" projectName={slug} projectSlug={slug} onBack={() => router.push(`/projects/${slug}`)} />
         <div className="p-6 text-center text-muted-foreground">
           Failed to load settings.
         </div>
@@ -252,277 +256,281 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <TopBar projectName={slug} sectionTitle="Settings" />
+    <div className="min-h-screen flex flex-col bg-[var(--bg)]">
+      <TopBar variant="settings" projectName={slug} projectSlug={slug} onBack={() => router.push(`/projects/${slug}`)} />
 
-      <main className="flex-1 p-6">
-        <div className="max-w-2xl mx-auto space-y-6">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.push(`/projects/${slug}`)}
-          >
-            <ArrowLeft className="mr-1.5 h-4 w-4" />
-            Back
-          </Button>
+      <main className="flex-1 overflow-y-auto flex justify-center">
+        <div className="w-full max-w-[800px] px-8 py-12">
+          {/* Breadcrumbs */}
+          <nav className="flex items-center gap-2 text-[11px] font-mono text-muted-foreground uppercase tracking-widest mb-6">
+            <span className="hover:text-foreground cursor-pointer" onClick={() => router.push('/projects')}>Projects</span>
+            <ChevronRight className="h-3 w-3" />
+            <span className="hover:text-foreground cursor-pointer" onClick={() => router.push(`/projects/${slug}`)}>{slug}</span>
+            <ChevronRight className="h-3 w-3" />
+            <span className="text-[var(--accent-light)]">Settings</span>
+          </nav>
 
-          <h1 className="text-2xl font-bold">Project Settings</h1>
+          <h1 className="text-3xl font-bold tracking-tight mb-10">Project Settings</h1>
 
-          {/* Features */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Features</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Comment Auto-Replies</p>
-                  <p className="text-xs text-muted-foreground">
-                    Claude auto-replies when resolving comments
-                  </p>
-                </div>
-                <button
-                  role="switch"
-                  aria-checked={settings.claude_comment_replies}
-                  onClick={() =>
-                    update({
-                      claude_comment_replies: !settings.claude_comment_replies,
-                    })
-                  }
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    settings.claude_comment_replies
-                      ? "bg-primary"
-                      : "bg-secondary"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                      settings.claude_comment_replies
-                        ? "translate-x-6"
-                        : "translate-x-1"
+          <div className="space-y-12">
+            {/* ── General ── */}
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <Settings className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">General</h2>
+              </div>
+              <div className="rounded-lg bg-[var(--surface)] p-6 border border-[var(--border-color)]">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium">Comment auto-replies</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Enable AI-generated suggestions for PRD comment threads.</p>
+                  </div>
+                  <button
+                    role="switch"
+                    aria-checked={settings.claude_comment_replies}
+                    onClick={() => update({ claude_comment_replies: !settings.claude_comment_replies })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      settings.claude_comment_replies ? "bg-[var(--accent)]" : "bg-[var(--surface-high)]"
                     }`}
-                  />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Chat Panel</p>
-                  <p className="text-xs text-muted-foreground">
-                    Enable AI chat for this project
-                  </p>
+                  >
+                    <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                      settings.claude_comment_replies ? "translate-x-6" : "translate-x-1"
+                    }`} />
+                  </button>
                 </div>
-                <button
-                  role="switch"
-                  aria-checked={settings.chat_enabled}
-                  onClick={() =>
-                    update({ chat_enabled: !settings.chat_enabled })
-                  }
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    settings.chat_enabled ? "bg-primary" : "bg-secondary"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                      settings.chat_enabled
-                        ? "translate-x-6"
-                        : "translate-x-1"
+              </div>
+            </section>
+
+            {/* ── Experimental Features ── */}
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">Experimental Features</h2>
+              </div>
+              <div className="rounded-lg bg-[var(--surface)] p-6 border border-[var(--border-color)] space-y-8">
+                {/* Chat toggle */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium">Chat Integration</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Directly chat with your document context using large language models.</p>
+                  </div>
+                  <button
+                    role="switch"
+                    aria-checked={settings.chat_enabled}
+                    onClick={() => update({ chat_enabled: !settings.chat_enabled })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      settings.chat_enabled ? "bg-[var(--accent)]" : "bg-[var(--surface-high)]"
                     }`}
-                  />
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Chat Configuration */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Chat Configuration</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">Provider</label>
-                <Select
-                  value={settings.chat_provider}
-                  onValueChange={(v) => update({ chat_provider: v })}
-                >
-                  <SelectTrigger className="mt-1.5">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PROVIDERS.map((p) => (
-                      <SelectItem key={p} value={p}>
-                        {p === "claude_cli" ? "Claude CLI" : "Anthropic API"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Model</label>
-                <Select
-                  value={settings.chat_model}
-                  onValueChange={(v) => update({ chat_model: v })}
-                >
-                  <SelectTrigger className="mt-1.5">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MODELS.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {m.charAt(0).toUpperCase() + m.slice(1)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Provider Authentication */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                Provider Authentication
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {/* Claude CLI */}
-              <div className="space-y-3">
-                <h4 className="text-sm font-medium">Claude CLI</h4>
-                <div className="flex items-center gap-2 text-sm">
-                  {providerStatus?.claude_cli.installed ? (
-                    <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                  ) : (
-                    <XCircle className="h-4 w-4 text-red-500 shrink-0" />
-                  )}
-                  <span>
-                    {providerStatus?.claude_cli.installed
-                      ? "Installed"
-                      : "Not installed"}
-                  </span>
+                  >
+                    <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                      settings.chat_enabled ? "translate-x-6" : "translate-x-1"
+                    }`} />
+                  </button>
                 </div>
-                <div className="flex items-center gap-2 text-sm">
-                  {providerStatus?.claude_cli.logged_in ? (
-                    <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                  ) : (
-                    <XCircle className="h-4 w-4 text-muted-foreground shrink-0" />
-                  )}
-                  <span>
-                    {providerStatus?.claude_cli.logged_in
-                      ? "Logged in"
-                      : "Not logged in"}
-                  </span>
+
+                {/* Provider + Model dropdowns */}
+                <div className="grid grid-cols-2 gap-6 pt-6 border-t border-[var(--border-color)]">
+                  <div>
+                    <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2">Chat Provider</label>
+                    <Select value={settings.chat_provider} onValueChange={(v) => update({ chat_provider: v })}>
+                      <SelectTrigger className="bg-[var(--surface-dim)] border-[var(--border-color)]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PROVIDERS.map((p) => (
+                          <SelectItem key={p} value={p}>
+                            {p === "claude_cli" ? "Claude CLI" : "Anthropic API"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2">Chat Model</label>
+                    <Select value={settings.chat_model} onValueChange={(v) => update({ chat_model: v })}>
+                      <SelectTrigger className="bg-[var(--surface-dim)] border-[var(--border-color)]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MODELS.map((m) => (
+                          <SelectItem key={m} value={m}>
+                            {m === "sonnet" ? "Claude 3.5 Sonnet" : m === "opus" ? "Claude 3 Opus" : "Claude 3 Haiku"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                {providerStatus?.claude_cli.installed && (
-                    <div className="space-y-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleCliLogin}
-                        disabled={loggingIn}
-                      >
-                        <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                        {loggingIn
-                          ? "Opening..."
-                          : providerStatus.claude_cli.logged_in
-                            ? "Re-login"
-                            : "Login with Claude"}
-                      </Button>
-                      {showCodeInput && (
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Paste auth code here..."
-                            value={loginCode}
-                            onChange={(e) => setLoginCode(e.target.value)}
-                            autoComplete="off"
-                            className="text-sm h-9"
-                          />
-                          <Button
-                            size="sm"
-                            onClick={handleCliLoginCode}
-                            disabled={!loginCode.trim()}
-                          >
-                            Submit
-                          </Button>
-                        </div>
+
+                {/* Provider Authentication — inline */}
+                <div className="pt-6 border-t border-[var(--border-color)] space-y-5">
+                  {/* Claude CLI status */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Claude CLI Status</h4>
+                    <div className="flex items-center gap-2 text-sm">
+                      {providerStatus?.claude_cli.installed ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+                      )}
+                      <span>{providerStatus?.claude_cli.installed ? "Installed" : "Not installed"}</span>
+                      {providerStatus?.claude_cli.installed && (
+                        <>
+                          <span className="text-muted-foreground mx-1">&middot;</span>
+                          {providerStatus?.claude_cli.logged_in ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-muted-foreground shrink-0" />
+                          )}
+                          <span>{providerStatus?.claude_cli.logged_in ? "Logged in" : "Not logged in"}</span>
+                        </>
                       )}
                     </div>
-                  )}
-              </div>
+                    {providerStatus?.claude_cli.installed && (
+                      <div className="space-y-2">
+                        <Button variant="outline" size="sm" onClick={handleCliLogin} disabled={loggingIn} className="border-[var(--border-color)]">
+                          <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                          {loggingIn ? "Opening..." : providerStatus.claude_cli.logged_in ? "Re-login" : "Login with Claude"}
+                        </Button>
+                        {showCodeInput && (
+                          <div className="flex gap-2">
+                            <Input placeholder="Paste auth code here..." value={loginCode} onChange={(e) => setLoginCode(e.target.value)} autoComplete="off" className="text-sm h-9 bg-[var(--surface-dim)] border-[var(--border-color)]" />
+                            <Button size="sm" onClick={handleCliLoginCode} disabled={!loginCode.trim()}>Submit</Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
-              {/* Divider */}
-              <div className="border-t" />
-
-              {/* Anthropic API */}
-              <div className="space-y-3">
-                <h4 className="text-sm font-medium">Anthropic API Key</h4>
-                <div className="flex items-center gap-2 text-sm">
-                  {providerStatus?.anthropic_api.configured ? (
-                    <>
-                      <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                      <span>
-                        Configured (
-                        {providerStatus.anthropic_api.key_hint})
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <span className="text-muted-foreground">
-                        Not configured
-                      </span>
-                    </>
-                  )}
+                  {/* Anthropic API key */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Anthropic API Key</h4>
+                    <div className="flex items-center gap-2 text-sm">
+                      {providerStatus?.anthropic_api.configured ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                          <span>Configured</span>
+                          <code className="text-[11px] font-mono text-[var(--accent-light)] bg-[var(--accent)]/5 px-1.5 py-0.5 rounded">{providerStatus.anthropic_api.key_hint}</code>
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <span className="text-muted-foreground">Not configured</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input placeholder="sk-ant-api03-..." value={apiKey} onChange={(e) => setApiKey(e.target.value)} type="password" className="text-sm h-9 bg-[var(--surface-dim)] border-[var(--border-color)]" />
+                      <Button size="sm" onClick={handleSaveApiKey} disabled={!apiKey.trim() || savingKey}>
+                        {savingKey ? "Saving..." : "Save Key"}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="sk-ant-api03-..."
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    type="password"
-                    className="text-sm h-9"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={handleSaveApiKey}
-                    disabled={!apiKey.trim() || savingKey}
-                  >
-                    {savingKey ? "Saving..." : "Save Key"}
+              </div>
+            </section>
+
+            {/* ── Members ── */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">Members</h2>
+                </div>
+              </div>
+              <div className="rounded-lg bg-[var(--surface)] border border-[var(--border-color)] overflow-hidden">
+                <MemberManager
+                  members={members}
+                  projectSlug={slug}
+                  orgSlug={ORG_SLUG}
+                  onAddMember={handleAddMember}
+                  onRemoveMember={handleRemoveMember}
+                  onChangeRole={handleChangeRole}
+                />
+              </div>
+            </section>
+
+            {/* ── API Keys ── */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Key className="h-4 w-4 text-muted-foreground" />
+                  <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">API Keys</h2>
+                </div>
+                <button className="ui-placeholder bg-[var(--surface-high)] hover:bg-[var(--surface-highest)] text-foreground text-[11px] font-bold px-4 py-1.5 rounded transition-all flex items-center gap-2" disabled>
+                  Generate New Key
+                </button>
+              </div>
+              <div className="rounded-lg bg-[var(--surface)] border border-[var(--border-color)] overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-[var(--surface-high)]/50 border-b border-[var(--border-color)]">
+                    <tr>
+                      <th className="px-6 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Name</th>
+                      <th className="px-6 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Key Prefix</th>
+                      <th className="px-6 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border-color)]">
+                    {providerStatus?.anthropic_api.configured ? (
+                      <tr className="hover:bg-[var(--surface-high)]/30 transition-colors">
+                        <td className="px-6 py-4 text-sm font-medium">Development Key</td>
+                        <td className="px-6 py-4">
+                          <code className="text-[11px] font-mono text-[var(--accent-light)] bg-[var(--accent)]/5 px-1.5 py-0.5 rounded">
+                            {providerStatus.anthropic_api.key_hint}
+                          </code>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent-light)] text-[10px] font-bold uppercase tracking-wider">
+                            <span className="w-1 h-1 rounded-full bg-[var(--accent-light)]" />
+                            Active
+                          </span>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="px-6 py-8 text-center text-sm text-muted-foreground">No API keys configured</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            {/* Save button */}
+            <div className="flex justify-end">
+              <Button onClick={handleSave} disabled={saving} className="shadow-md shadow-[var(--accent)]/10">
+                {saving ? "Saving..." : (
+                  <><Check className="mr-1.5 h-4 w-4" />Save Settings</>
+                )}
+              </Button>
+            </div>
+
+            {/* ── Danger Zone ── */}
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <AlertTriangle className="h-4 w-4 text-destructive" />
+                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-destructive">Danger Zone</h2>
+              </div>
+              <div className="border border-destructive/30 rounded-lg p-6 bg-destructive/5">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="font-medium">Delete Project</h3>
+                    <p className="text-sm text-muted-foreground mt-1 max-w-lg">
+                      Permanently delete this project and all associated PRDs, technical specs, and architecture diagrams. This action cannot be undone.
+                    </p>
+                  </div>
+                  <Button variant="destructive" size="sm" className="shrink-0 ml-4 ui-placeholder shadow-lg shadow-destructive/10">
+                    Delete Project
                   </Button>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </section>
+          </div>
 
-          {/* Members */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Members</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <MemberManager
-                members={members}
-                projectSlug={slug}
-                orgSlug={ORG_SLUG}
-                onAddMember={handleAddMember}
-                onRemoveMember={handleRemoveMember}
-                onChangeRole={handleChangeRole}
-              />
-            </CardContent>
-          </Card>
-
-          <div className="flex justify-end">
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? (
-                "Saving..."
-              ) : (
-                <>
-                  <Check className="mr-1.5 h-4 w-4" />
-                  Save Settings
-                </>
-              )}
-            </Button>
+          {/* Footer */}
+          <div className="mt-20 pt-8 border-t border-[var(--border-color)] flex justify-between items-center text-[10px] font-mono text-muted-foreground uppercase tracking-[0.3em]">
+            <span>Last Updated: {new Date().toISOString().slice(0, 10)}</span>
+            <span>System Health: Nominal</span>
           </div>
         </div>
       </main>

@@ -1,15 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { Wrench } from "lucide-react";
+import { Wrench, AlertTriangle, RefreshCw, Activity } from "lucide-react";
 import type { TokenStats } from "@/lib/types";
 
 interface TokenStatsDashboardProps {
   stats: TokenStats;
+  projectSlug?: string;
 }
 
 function formatNum(n: number): string {
@@ -78,7 +79,7 @@ const tooltipStyle = {
   },
 };
 
-export function TokenStatsDashboard({ stats }: TokenStatsDashboardProps) {
+function StatsContent({ stats }: { stats: TokenStats }) {
   const dailyData = useMemo(() =>
     stats.daily_trend.map((d) => ({
       day: d.day.slice(5), // MM-DD
@@ -152,28 +153,35 @@ export function TokenStatsDashboard({ stats }: TokenStatsDashboardProps) {
         <div className="rounded-lg p-4" style={{ background: "var(--card-bg)", border: "1px solid var(--border-color)" }}>
           <div className="text-xs font-medium text-muted-foreground mb-3">Full Doc vs Loaded</div>
           <div className="flex items-end gap-6 justify-center h-[200px]">
-            {comparisonData.map((d) => {
+            {(() => {
               const maxH = 160;
-              const h = Math.max(8, (d.tokens / stats.total_full_doc_tokens) * maxH);
+              const maxTokens = Math.max(stats.total_full_doc_tokens, stats.total_loaded_tokens, stats.total_saved_tokens, 1);
               return (
-                <div key={d.name} className="flex flex-col items-center gap-2">
-                  <span className="text-lg font-bold tabular-nums" style={{ color: d.fill }}>{formatNum(d.tokens)}</span>
-                  <div
-                    className="w-16 rounded-t-md transition-all"
-                    style={{ height: h, background: d.fill, opacity: 0.8 }}
-                  />
-                  <span className="text-xs text-muted-foreground">{d.name}</span>
-                </div>
+                <>
+                  {comparisonData.map((d) => {
+                    const h = Math.max(8, Math.min(maxH, (d.tokens / maxTokens) * maxH));
+                    return (
+                      <div key={d.name} className="flex flex-col items-center gap-2">
+                        <span className="text-lg font-bold tabular-nums" style={{ color: d.fill }}>{formatNum(d.tokens)}</span>
+                        <div
+                          className="w-16 rounded-t-md transition-all"
+                          style={{ height: h, background: d.fill, opacity: 0.8 }}
+                        />
+                        <span className="text-xs text-muted-foreground">{d.name}</span>
+                      </div>
+                    );
+                  })}
+                  <div className="flex flex-col items-center gap-2">
+                    <span className="text-lg font-bold tabular-nums text-muted-foreground">{formatNum(stats.total_saved_tokens)}</span>
+                    <div
+                      className="w-16 rounded-t-md border-2 border-dashed"
+                      style={{ height: Math.max(8, Math.min(maxH, (stats.total_saved_tokens / maxTokens) * maxH)), borderColor: "#6366f1", opacity: 0.5 }}
+                    />
+                    <span className="text-xs text-muted-foreground">Saved</span>
+                  </div>
+                </>
               );
-            })}
-            <div className="flex flex-col items-center gap-2">
-              <span className="text-lg font-bold tabular-nums text-muted-foreground">{formatNum(stats.total_saved_tokens)}</span>
-              <div
-                className="w-16 rounded-t-md border-2 border-dashed"
-                style={{ height: Math.max(8, (stats.total_saved_tokens / stats.total_full_doc_tokens) * 160), borderColor: "#6366f1", opacity: 0.5 }}
-              />
-              <span className="text-xs text-muted-foreground">Saved</span>
-            </div>
+            })()}
           </div>
         </div>
       </div>
@@ -285,6 +293,165 @@ export function TokenStatsDashboard({ stats }: TokenStatsDashboardProps) {
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ============================================
+   Log View sub-tab
+   ============================================ */
+function LogViewContent({ projectSlug }: { projectSlug?: string }) {
+  const [auditLog, setAuditLog] = useState<Array<{
+    action: string;
+    resource: string;
+    detail: Record<string, unknown>;
+    user_id: string | null;
+    created_at: string;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!projectSlug) return;
+    fetch(`/api/projects/${projectSlug}/audit`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setAuditLog(Array.isArray(data) ? data : []))
+      .catch(() => setAuditLog([]))
+      .finally(() => setLoading(false));
+  }, [projectSlug]);
+
+  if (loading) {
+    return <div className="text-sm text-muted-foreground text-center py-12">Loading audit log...</div>;
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Filters — non-functional placeholders */}
+      <div className="flex items-center gap-3">
+        <select className="ui-placeholder input-etched rounded-lg px-3 py-2 text-sm" disabled>
+          <option>All Contributors</option>
+        </select>
+        <select className="ui-placeholder input-etched rounded-lg px-3 py-2 text-sm" disabled>
+          <option>Any Action</option>
+        </select>
+        <button className="ui-placeholder ml-auto flex items-center gap-1.5 rounded-lg border border-[var(--accent)] px-3 py-2 text-xs font-semibold text-[var(--accent)]" disabled>
+          <RefreshCw className="h-3.5 w-3.5" />
+          Live Refresh
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[var(--border-color)] bg-[var(--surface-dim)]">
+              <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Timestamp</th>
+              <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Action</th>
+              <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Resource</th>
+              <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Detail</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--border-color)]">
+            {auditLog.length === 0 ? (
+              <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">No activity recorded</td></tr>
+            ) : (
+              auditLog.slice(0, 25).map((entry, i) => (
+                <tr key={i} className="hover:bg-[var(--surface)]/30 transition-colors">
+                  <td className="px-4 py-3 text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+                    {new Date(entry.created_at).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-xs font-medium">{entry.action}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{entry.resource}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground max-w-[200px] truncate">
+                    {JSON.stringify(entry.detail).slice(0, 60)}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================
+   Alerts sub-tab (non-functional placeholder)
+   ============================================ */
+function AlertsContent() {
+  return (
+    <div className="space-y-5">
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="ui-placeholder rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] p-5 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <AlertTriangle className="h-5 w-5 text-[var(--status-error)]" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Critical</span>
+          </div>
+          <div className="text-3xl font-bold tabular-nums">0</div>
+        </div>
+        <div className="ui-placeholder rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] p-5 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Activity className="h-5 w-5 text-[var(--status-warning)]" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Review</span>
+          </div>
+          <div className="text-3xl font-bold tabular-nums">0</div>
+        </div>
+        <div className="ui-placeholder rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] p-5 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Activity className="h-5 w-5 text-[var(--accent)]" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Suggestions</span>
+          </div>
+          <div className="text-3xl font-bold tabular-nums">0</div>
+        </div>
+      </div>
+
+      {/* Empty alert list */}
+      <div className="rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] p-8 text-center">
+        <AlertTriangle className="h-8 w-8 text-muted-foreground mx-auto mb-3 opacity-40" />
+        <p className="text-sm text-muted-foreground">No alerts</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Dependency conflicts, outdated sections, and AI suggestions will appear here.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================
+   Main wrapper with sub-tabs
+   ============================================ */
+const SUB_TABS = [
+  { value: "stats", label: "Stats" },
+  { value: "log-view", label: "Log View" },
+  { value: "alerts", label: "Alerts" },
+] as const;
+
+export function TokenStatsDashboard({ stats, projectSlug }: TokenStatsDashboardProps) {
+  const [subTab, setSubTab] = useState<string>("stats");
+
+  return (
+    <div className="space-y-5">
+      {/* Sub-tab bar */}
+      <div className="flex items-center gap-1 border-b border-[var(--border-color)] pb-0">
+        {SUB_TABS.map((tab) => (
+          <button
+            key={tab.value}
+            onClick={() => setSubTab(tab.value)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-[1px] ${
+              subTab === tab.value
+                ? "border-[var(--accent)] text-[var(--accent)]"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Sub-tab content */}
+      {subTab === "stats" && <StatsContent stats={stats} />}
+      {subTab === "log-view" && <LogViewContent projectSlug={projectSlug} />}
+      {subTab === "alerts" && <AlertsContent />}
     </div>
   );
 }

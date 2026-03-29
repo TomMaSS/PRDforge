@@ -156,16 +156,30 @@ export function MemberManager({
     }
   };
 
+  const getInitials = (name?: string, email?: string) => {
+    const str = name || email || "?";
+    return str.split(/[\s@]/).filter(Boolean).slice(0, 2).map(s => s[0]?.toUpperCase()).join("");
+  };
+
+  const AVATAR_COLORS = [
+    "bg-orange-500/20 text-orange-400",
+    "bg-teal-500/20 text-teal-400",
+    "bg-pink-500/20 text-pink-400",
+    "bg-sky-500/20 text-sky-400",
+    "bg-lime-500/20 text-lime-400",
+    "bg-violet-500/20 text-violet-400",
+  ];
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Members</h3>
+    <div>
+      {/* Add Member button — positioned by parent */}
+      <div className="flex items-center justify-end px-4 py-3 border-b border-[var(--border-color)]">
         <Dialog open={dialogOpen} onOpenChange={handleDialogOpen}>
           <DialogTrigger asChild>
-            <Button size="sm">
-              <UserPlus className="mr-1.5 h-4 w-4" />
+            <button className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-[11px] font-bold px-4 py-1.5 rounded transition-all active:scale-95 flex items-center gap-2">
+              <UserPlus className="h-3.5 w-3.5" />
               Add Member
-            </Button>
+            </button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -296,74 +310,77 @@ export function MemberManager({
         </Dialog>
       </div>
 
-      <div className="divide-y rounded-lg border">
-        {members.length === 0 ? (
-          <div className="p-4 text-center text-sm text-muted-foreground">
-            No members yet
-          </div>
-        ) : (
-          members.map((member) => (
-            <div
-              key={member.id}
-              className="flex items-center justify-between p-3"
-            >
-              <div className="flex items-center gap-3">
-                <div>
-                  <p className="text-sm font-medium">
-                    {member.name || member.email || member.user_id}
-                  </p>
-                  {member.email && (
-                    <p className="text-xs text-muted-foreground">
-                      {member.email}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={member.role}
-                  onValueChange={(newRole) =>
-                    onChangeRole(member.user_id, newRole)
-                  }
-                >
-                  <SelectTrigger className="w-32">
-                    <Badge
-                      className={ROLE_COLORS[member.role] || ""}
-                      variant="secondary"
+      {/* Members table */}
+      <table className="w-full text-left">
+        <thead className="bg-[var(--surface-high)]/50 border-b border-[var(--border-color)]">
+          <tr>
+            <th className="px-6 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Member</th>
+            <th className="px-6 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Role</th>
+            <th className="px-6 py-3 text-right text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[var(--border-color)]/30">
+          {members.length === 0 ? (
+            <tr>
+              <td colSpan={3} className="px-6 py-8 text-center text-sm text-muted-foreground">
+                No members yet
+              </td>
+            </tr>
+          ) : (
+            members.map((member, idx) => (
+              <tr key={member.id} className="hover:bg-[var(--surface-high)]/30 transition-colors">
+                <td className="px-6 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${AVATAR_COLORS[idx % AVATAR_COLORS.length]}`}>
+                      {getInitials(member.name, member.email)}
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium">{member.name || member.user_id}</div>
+                      {member.email && (
+                        <div className="text-xs text-muted-foreground">{member.email}</div>
+                      )}
+                    </div>
+                  </div>
+                </td>
+                <td className="px-6 py-4">
+                  <Select
+                    value={member.role}
+                    onValueChange={(newRole) => onChangeRole(member.user_id, newRole)}
+                  >
+                    <SelectTrigger className="w-28 bg-transparent border-none text-xs text-[var(--accent-light)] p-0 h-auto hover:text-[var(--accent)] transition-colors">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ROLES.map((r) => (
+                        <SelectItem key={r} value={r}>
+                          {r.charAt(0).toUpperCase() + r.slice(1)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </td>
+                <td className="px-6 py-4 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      onClick={() => handleResetPassword(member.user_id)}
+                      title="Generate password reset link"
+                      className="text-muted-foreground hover:text-foreground transition-colors p-2"
                     >
-                      {member.role}
-                    </Badge>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ROLES.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {r.charAt(0).toUpperCase() + r.slice(1)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleResetPassword(member.user_id)}
-                  aria-label="Reset password"
-                  title="Generate password reset link"
-                >
-                  <KeyRound className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onRemoveMember(member.user_id)}
-                  aria-label="Remove member"
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+                      <KeyRound className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => onRemoveMember(member.user_id)}
+                      className="text-muted-foreground hover:text-destructive transition-colors p-2"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

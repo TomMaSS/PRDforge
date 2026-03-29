@@ -229,12 +229,12 @@ export function SectionViewer({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 overflow-y-auto p-6 bg-[var(--reading-bg)]">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-2xl font-bold">{section.title}</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{section.title}</h1>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium hover:bg-secondary transition-colors cursor-pointer border border-transparent hover:border-border">
@@ -327,98 +327,75 @@ export function SectionViewer({
           <MarkdownRenderer content={section.content} />
         </div>
 
-        {/* Notes accordion */}
-        <div className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5">
-          <button
-            type="button"
-            onClick={() => setNotesExpanded((v) => !v)}
-            className="flex w-full items-center gap-2 p-4 text-left"
-          >
-            <ChevronRight
-              className={`h-4 w-4 text-amber-600 transition-transform ${
-                notesExpanded ? "rotate-90" : ""
-              }`}
-            />
-            <StickyNote className="h-4 w-4 text-amber-600" />
-            <span className="text-sm font-semibold flex-1">Notes</span>
+        {/* Notes — full-page note section */}
+        <div className="mt-8 rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-color)]">
+            <div className="flex items-center gap-2">
+              <StickyNote className="h-4 w-4 text-[var(--status-warning)]" />
+              <span className="text-sm font-semibold">Notes</span>
+            </div>
             {!notesEditing && (
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
+              <button
+                onClick={() => {
                   setNotesExpanded(true);
                   handleNotesEditStart();
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.stopPropagation();
-                    setNotesExpanded(true);
-                    handleNotesEditStart();
-                  }
-                }}
-                className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 {section.notes ? "Edit" : "Add notes"}
-              </span>
+              </button>
             )}
-          </button>
-          <div
-            className={`overflow-hidden transition-all duration-200 ${
-              notesExpanded ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0"
-            }`}
-          >
-            <div className="px-4 pb-4">
-              {notesEditing ? (
-                <div className="space-y-2">
-                  <Textarea
-                    value={notesDraft}
-                    onChange={(e) => setNotesDraft(e.target.value)}
-                    placeholder="Add notes for this section (supports Markdown)..."
-                    rows={6}
-                    className="text-sm"
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={handleNotesSave}
-                      disabled={notesSaving}
-                    >
-                      <Check className="h-3 w-3 mr-1" />
-                      {notesSaving ? "Saving..." : "Save"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleNotesEditCancel}
-                    >
-                      <X className="h-3 w-3 mr-1" /> Cancel
-                    </Button>
-                  </div>
+          </div>
+          <div className="p-4">
+            {notesEditing ? (
+              <div className="space-y-3">
+                <Textarea
+                  value={notesDraft}
+                  onChange={(e) => setNotesDraft(e.target.value)}
+                  placeholder="Add notes for this section (supports Markdown)..."
+                  rows={6}
+                  className="text-sm bg-[var(--surface-dim)] border-[var(--border-color)]"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={handleNotesSave}
+                    disabled={notesSaving}
+                  >
+                    <Check className="h-3 w-3 mr-1" />
+                    {notesSaving ? "Saving..." : "Save"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleNotesEditCancel}
+                  >
+                    <X className="h-3 w-3 mr-1" /> Cancel
+                  </Button>
                 </div>
-              ) : section.notes ? (
-                <MarkdownRenderer content={section.notes} className="text-sm" />
-              ) : (
-                <p className="text-sm text-muted-foreground italic">
-                  No notes yet.
-                </p>
-              )}
-            </div>
+              </div>
+            ) : section.notes ? (
+              <MarkdownRenderer content={section.notes} className="text-sm" />
+            ) : (
+              <p className="text-sm text-muted-foreground italic">
+                No notes yet. Click &ldquo;Add notes&rdquo; to get started.
+              </p>
+            )}
           </div>
         </div>
 
         {/* Comments panel */}
         {comments.length > 0 && (
-          <div className="mt-8 border-t pt-6">
-            <h3 className="text-sm font-semibold mb-4">
+          <div className="mt-8">
+            <h3 className="text-sm font-semibold mb-4 text-muted-foreground uppercase tracking-wider">
               Comments ({comments.length})
             </h3>
-            <div className="space-y-4">
+            <div className="space-y-3">
               {comments.map((comment) => (
                 <div
                   key={comment.id}
                   id={`comment-${comment.id}`}
-                  className={`rounded-lg border p-4 transition-all ${comment.resolved ? "opacity-50" : ""}`}
+                  className={`rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] p-4 transition-all ${comment.resolved ? "opacity-40" : ""}`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <code className="text-xs bg-muted px-1.5 py-0.5 rounded">

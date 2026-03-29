@@ -2,16 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FolderOpen, Plus, Check } from "lucide-react";
+import {
+  FolderOpen,
+  Plus,
+  Check,
+  FileText,
+  Layers,
+  Smartphone,
+  Code2,
+} from "lucide-react";
 import { TopBar } from "@/components/top-bar";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -21,13 +22,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/empty-state";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { fetchProjects, createProject, fetchTemplates } from "@/lib/api";
 import type { TemplateInfo } from "@/lib/api";
 import type { Project } from "@/lib/types";
+
+const TEMPLATE_ICONS: Record<string, typeof FileText> = {
+  blank: FileText,
+  "saas-mvp": Layers,
+  "mobile-app": Smartphone,
+  "api-design": Code2,
+};
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -70,96 +76,103 @@ export default function ProjectsPage() {
     }
   };
 
-  return (
-    <div className="min-h-screen flex flex-col">
-      <TopBar />
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
 
-      <main className="flex-1 p-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
+  return (
+    <div className="min-h-screen flex flex-col bg-[var(--bg)]">
+      <TopBar variant="dashboard" />
+
+      <main className="flex-1 p-6 md:p-8">
+        <div className="max-w-6xl mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
             <div>
-              <h1 className="text-2xl font-bold">Projects</h1>
+              <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Manage your product requirement documents
+                Manage your product requirement documents and engineering blueprints.
               </p>
             </div>
 
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <Button className="gap-1.5 shadow-md shadow-[var(--accent)]/10">
                   <Plus className="h-4 w-4" />
                   New Project
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-lg">
+              <DialogContent className="sm:max-w-lg border-[var(--border-color)] bg-[var(--surface-high)]">
                 <DialogHeader>
-                  <DialogTitle>Create Project</DialogTitle>
+                  <DialogTitle className="text-lg">Forge New Project</DialogTitle>
                   <DialogDescription>
-                    Choose a template and create a new PRD project.
+                    Select a starting point for your technical documentation.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4 py-4">
-                  {/* Template selector */}
+                <div className="space-y-5 py-4">
+                  {/* Blueprints & Templates */}
                   <div>
-                    <label className="text-sm font-medium">Template</label>
-                    <div className="grid grid-cols-2 gap-2 mt-1.5">
-                      {templates.map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => setTemplateId(t.id)}
-                          className={`relative rounded-lg border p-3 text-left text-sm transition-colors hover:bg-accent ${
-                            templateId === t.id
-                              ? "border-primary bg-primary/5"
-                              : "border-border"
-                          }`}
-                        >
-                          {templateId === t.id && (
-                            <Check className="absolute top-2 right-2 h-3.5 w-3.5 text-primary" />
-                          )}
-                          <div className="font-medium">{t.name}</div>
-                          <div className="text-xs text-muted-foreground mt-0.5">
-                            {t.description}
-                          </div>
-                          {t.section_count > 0 && (
-                            <div className="text-xs text-muted-foreground mt-1">
-                              {t.section_count} sections
-                            </div>
-                          )}
-                        </button>
-                      ))}
+                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                      Blueprints &amp; Templates
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {templates.map((t) => {
+                        const Icon = TEMPLATE_ICONS[t.id] || FileText;
+                        const isActive = templateId === t.id;
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => setTemplateId(t.id)}
+                            className={`relative flex flex-col items-center gap-2 rounded-lg border p-4 text-center text-sm transition-all ${
+                              isActive
+                                ? "border-[var(--accent)] bg-[var(--accent)]/10 shadow-sm shadow-[var(--accent)]/10"
+                                : "border-[var(--border-color)] hover:border-[var(--accent)]/40 hover:bg-[var(--surface)]"
+                            }`}
+                          >
+                            {isActive && (
+                              <Check className="absolute top-2 right-2 h-3 w-3 text-[var(--accent)]" />
+                            )}
+                            <Icon className={`h-5 w-5 ${isActive ? "text-[var(--accent)]" : "text-muted-foreground"}`} />
+                            <span className="font-medium text-xs">{t.name}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
+
+                  {/* Project Name */}
                   <div>
                     <label
                       htmlFor="project-name"
-                      className="text-sm font-medium"
+                      className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground"
                     >
-                      Name
+                      Project Name
                     </label>
-                    <Input
+                    <input
                       id="project-name"
-                      placeholder="My Product PRD"
+                      placeholder="e.g., Artemis Data Pipeline"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      className="mt-1.5"
+                      className="input-etched w-full rounded-lg px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50"
                     />
                   </div>
+
+                  {/* Description */}
                   <div>
                     <label
                       htmlFor="project-description"
-                      className="text-sm font-medium"
+                      className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground"
                     >
-                      Description
+                      High-level Description
                     </label>
-                    <Textarea
+                    <textarea
                       id="project-description"
-                      placeholder="Brief description of the project..."
+                      placeholder="Summarize the technical vision and core objectives..."
                       value={description}
-                      onChange={(e) =>
-                        setDescription(e.target.value)
-                      }
-                      className="mt-1.5"
+                      onChange={(e) => setDescription(e.target.value)}
+                      className="input-etched w-full rounded-lg px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 resize-none"
                       rows={3}
                     />
                   </div>
@@ -168,20 +181,23 @@ export default function ProjectsPage() {
                   <Button
                     variant="outline"
                     onClick={() => setDialogOpen(false)}
+                    className="border-[var(--border-color)]"
                   >
                     Cancel
                   </Button>
                   <Button
                     onClick={handleCreate}
                     disabled={!name.trim() || creating}
+                    className="shadow-md shadow-[var(--accent)]/10"
                   >
-                    {creating ? "Creating..." : "Create"}
+                    {creating ? "Creating..." : "Create Project"}
                   </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
           </div>
 
+          {/* Content */}
           {loading ? (
             <LoadingOverlay />
           ) : projects.length === 0 ? (
@@ -195,40 +211,48 @@ export default function ProjectsPage() {
               }}
             />
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {projects.map((project) => (
-                <Card
+                <div
                   key={project.slug}
-                  className="cursor-pointer transition-shadow hover:shadow-md"
-                  onClick={() =>
-                    router.push(`/projects/${project.slug}`)
-                  }
+                  onClick={() => router.push(`/projects/${project.slug}`)}
+                  className="group cursor-pointer rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] p-5 transition-all hover:border-[var(--accent)]/30 hover:shadow-lg hover:shadow-[var(--accent)]/5"
                 >
-                  <CardHeader>
-                    <CardTitle className="text-base">
+                  <div className="mb-3">
+                    <h3 className="font-semibold text-foreground group-hover:text-[var(--accent-light)] transition-colors">
                       {project.name}
-                    </CardTitle>
+                    </h3>
                     {project.description && (
-                      <CardDescription className="line-clamp-2">
+                      <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
                         {project.description}
-                      </CardDescription>
+                      </p>
                     )}
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center justify-between text-sm text-muted-foreground">
-                      <span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground pt-3 border-t border-[var(--border-color)]">
+                    <div className="flex items-center gap-3">
+                      <span className="tabular-nums">
                         {project.section_count}{" "}
-                        {project.section_count === 1
-                          ? "section"
-                          : "sections"}
+                        {project.section_count === 1 ? "section" : "sections"}
                       </span>
-                      <span>
-                        {project.total_words} words
+                      <span className="tabular-nums">
+                        {project.total_words.toLocaleString()} words
                       </span>
                     </div>
-                  </CardContent>
-                </Card>
+                    <span>{formatDate(project.updated_at)}</span>
+                  </div>
+                </div>
               ))}
+
+              {/* Dashed "Create New Project" card */}
+              <div
+                onClick={() => setDialogOpen(true)}
+                className="flex cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-[var(--border-color)] p-5 text-muted-foreground transition-all hover:border-[var(--accent)]/40 hover:text-[var(--accent-light)]"
+              >
+                <div className="text-center">
+                  <Plus className="mx-auto h-8 w-8 mb-2 opacity-50" />
+                  <span className="text-sm font-medium">Create New Project</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
